@@ -11758,6 +11758,245 @@ end
 
 return C
 end
+ function a.StaggerRefresh()
+local RunService=game:GetService"RunService"
+
+local R={}
+local DEFAULTS={
+ChunkSize=3,
+FrameBudget=0.004,
+StepDelay=0.03,
+CurrentTabFirst=true,
+SilentCallbacks=true,
+RefreshShapes=true,
+}
+
+local function safe(fn,...)
+if type(fn)~="function"then return true end
+local ok,err=pcall(fn,...)
+if not ok then
+warn("[ WindUI ] RefreshAll callback error: "..tostring(err))
+end
+return ok
+end
+
+local function toSet(v)
+if type(v)~="table"then return nil end
+local set={}
+for k,x in next,v do
+if type(k)=="number"then set[tostring(x)]=true else set[k]=x and true or nil end
+end
+return set
+end
+
+local function collect(win,cfg)
+local queue,seen,containers={},{},{}
+local types=toSet(cfg.Types)
+local filter=type(cfg.Filter)=="function"and cfg.Filter or nil
+
+local function walk(el,bucket)
+if type(el)~="table"or seen[el]then return end
+seen[el]=true
+bucket[#bucket+1]=el
+local kids=rawget(el,"Elements")
+if type(kids)=="table"then
+containers[#containers+1]=el
+local keys={}
+for k in next,kids do keys[#keys+1]=k end
+table.sort(keys,function(x,y)
+if type(x)=="number"and type(y)=="number"then return x<y end
+return tostring(x)<tostring(y)
+end)
+for _,k in ipairs(keys)do walk(kids[k],bucket)end
+end
+end
+
+local tabs={}
+local tm=win.TabModule
+if tm and type(tm.Tabs)=="table"then
+for _,tab in next,tm.Tabs do
+if type(tab)=="table"then tabs[#tabs+1]=tab end
+end
+end
+table.sort(tabs,function(x,y)return(tonumber(x.Index)or 0)<(tonumber(y.Index)or 0)end)
+
+if cfg.Tab then
+local only
+for _,t in ipairs(tabs)do if t==cfg.Tab then only=t break end end
+tabs=only and{only}or{}
+end
+
+if cfg.CurrentTabFirst and win.CurrentTab then
+for i,t in ipairs(tabs)do
+if t==win.CurrentTab or(t.Index~=nil and t.Index==win.CurrentTab)then
+table.remove(tabs,i)
+table.insert(tabs,1,t)
+break
+end
+end
+end
+
+local buckets={}
+for _,tab in ipairs(tabs)do
+local bucket={}
+if type(tab.Elements)=="table"then
+local keys={}
+for k in next,tab.Elements do keys[#keys+1]=k end
+table.sort(keys,function(x,y)
+if type(x)=="number"and type(y)=="number"then return x<y end
+return tostring(x)<tostring(y)
+end)
+for _,k in ipairs(keys)do walk(tab.Elements[k],bucket)end
+end
+containers[#containers+1]=tab
+buckets[#buckets+1]=bucket
+end
+
+if not cfg.Tab then
+local extra={}
+for _,el in next,win.AllElements do walk(el,extra)end
+buckets[#buckets+1]=extra
+end
+
+for _,bucket in ipairs(buckets)do
+for _,el in ipairs(bucket)do
+local t=rawget(el,"__type")
+if(not types or types[t])and(not filter or select(2,pcall(filter,el))==true)then
+queue[#queue+1]={kind="el",el=el}
+end
+end
+end
+
+if cfg.RefreshShapes and win.NewElements then
+local doneC={}
+for _,c in ipairs(containers)do
+if not doneC[c]and type(c.UpdateAllElementShapes)=="function"then
+doneC[c]=true
+queue[#queue+1]={kind="shape",container=c}
+end
+end
+end
+
+return queue
+end
+
+local function refreshElement(el,cfg,handle)
+local frame=el.ElementFrame
+if typeof(frame)=="Instance"and frame.Parent==nil then
+return
+end
+
+local newValues
+local hook=rawget(el,"OnRefresh")
+if type(hook)=="function"then
+local ok,res=pcall(hook,el)
+if ok then
+newValues=res
+else
+handle.Failed+=1
+warn("[ WindUI ] OnRefresh error: "..tostring(res))
+end
+end
+
+if rawget(el,"__type")=="Dropdown"and type(el.Refresh)=="function"then
+local values=type(newValues)=="table"and newValues or el.Values
+local savedCallback=el.Callback
+if cfg.SilentCallbacks then el.Callback=nil end
+local ok,err=pcall(el.Refresh,el,values)
+el.Callback=savedCallback
+if not ok then
+handle.Failed+=1
+warn("[ WindUI ] Dropdown refresh error: "..tostring(err))
+end
+end
+end
+
+function R.Run(win,opts)
+opts=type(opts)=="table"and opts or{}
+local cfg={}
+for k,v in next,DEFAULTS do cfg[k]=v end
+for k,v in next,opts do cfg[k]=v end
+cfg.ChunkSize=math.max(1,math.floor(tonumber(cfg.ChunkSize)or DEFAULTS.ChunkSize))
+cfg.FrameBudget=math.max(0.0005,tonumber(cfg.FrameBudget)or DEFAULTS.FrameBudget)
+cfg.StepDelay=math.max(0,tonumber(cfg.StepDelay)or DEFAULTS.StepDelay)
+
+if win.__StaggerRefresh then
+win.__StaggerRefresh:Cancel()
+end
+
+local queue=collect(win,cfg)
+local handle={
+Total=#queue,
+Done=0,
+Failed=0,
+Running=true,
+Cancelled=false,
+}
+win.__StaggerRefresh=handle
+
+local conn
+local function finish(cancelled)
+if not handle.Running then return end
+handle.Running=false
+handle.Cancelled=cancelled
+if conn then conn:Disconnect()conn=nil end
+if win.__StaggerRefresh==handle then win.__StaggerRefresh=nil end
+if not cancelled then
+safe(cfg.OnComplete,{Total=handle.Total,Done=handle.Done,Failed=handle.Failed})
+end
+end
+
+function handle.Cancel(self)
+finish(true)
+end
+
+function handle.Progress(self)
+return self.Total==0 and 1 or self.Done/self.Total
+end
+
+local acc=cfg.StepDelay
+conn=RunService.Heartbeat:Connect(function(dt)
+if win.Destroyed then
+return finish(true)
+end
+acc+=dt
+if acc<cfg.StepDelay then return end
+acc=0
+
+local t0=os.clock()
+local n=0
+local last
+while handle.Done<handle.Total do
+handle.Done+=1
+local item=queue[handle.Done]
+if item.kind=="el"then
+refreshElement(item.el,cfg,handle)
+last=item.el
+else
+local ok,err=pcall(item.container.UpdateAllElementShapes,item.container,item.container)
+if not ok then
+handle.Failed+=1
+warn("[ WindUI ] Shape refresh error: "..tostring(err))
+end
+end
+n+=1
+if n>=cfg.ChunkSize or os.clock()-t0>=cfg.FrameBudget then
+break
+end
+end
+
+safe(cfg.OnProgress,handle.Done,handle.Total,last)
+
+if handle.Done>=handle.Total then
+finish(false)
+end
+end)
+
+return handle
+end
+
+return R
+end
  function a._()
 
 return{
@@ -11798,6 +12037,9 @@ at.UIScale=ao
 at.ElementsModule=an local
 
 au, av=ar:New(at)
+if type(av)=="table"and typeof(at.OnRefresh)=="function"then
+av.OnRefresh=at.OnRefresh
+end
 
 if at.Flag and typeof(at.Flag)=="string"then
 if ak.CurrentConfig then
@@ -11915,195 +12157,6 @@ end
 end
 end
 end,
-
-local RefreshService = {}
-do
-    local RunService = (cloneref or clonereference or function(x) return x end)(game:GetService("RunService"))
-    local DEFAULTS = {
-        Budget = 0.004,
-        Chunk = 32,
-        YieldMode = "Heartbeat",
-        Scope = "All",
-    }
-    local ActiveJobs = {}
-    local function now()
-        return os.clock()
-    end
-    local function BuildWorkUnits(WindUI, Scope, Targets)
-        local units = {}
-        local Window = WindUI.Window
-        local wantTheme = Scope == "All" or Scope == "Theme"
-        local wantShapes = Scope == "All" or Scope == "Shapes"
-        local wantDropdowns = Scope == "All" or Scope == "Dropdowns"
-        if wantTheme then
-            local Creator = WindUI.Creator
-            if Creator and Creator.Objects then
-                for obj, entry in pairs(Creator.Objects) do
-                    if typeof(obj) == "Instance" and obj.Parent ~= nil then
-                        units[#units + 1] = function()
-                            pcall(function()
-                                Creator:UpdateTheme(obj, false)
-                            end)
-                        end
-                    end
-                end
-            end
-        end
-        if wantShapes and Window and Window.TabModule and Window.TabModule.Tabs then
-            for _, tab in pairs(Window.TabModule.Tabs) do
-                local elements = tab.Elements
-                if elements then
-                    for _, el in pairs(elements) do
-                        local target = el
-                        local shapeHolder = nil
-                        for k, v in pairs(el) do
-                            if typeof(v) == "table" and k:match("Frame$") then
-                                shapeHolder = v
-                                break
-                            end
-                        end
-                        if not shapeHolder and el.UpdateShape then
-                            shapeHolder = el
-                        end
-
-                        if shapeHolder and (shapeHolder.UpdateShape or el.UpdateShape) then
-                            local tabRef = tab
-                            units[#units + 1] = function()
-                                pcall(function()
-                                    if shapeHolder.UpdateShape then
-                                        shapeHolder:UpdateShape(tabRef)
-                                    elseif el.UpdateShape then
-                                        el:UpdateShape(tabRef)
-                                    end
-                                end)
-                            end
-                        end
-                    end
-                end
-            end
-        end
-        if wantDropdowns and Window and Window.AllElements then
-            for _, el in pairs(Window.AllElements) do
-                if el.__type == "Dropdown" and el.Refresh then
-                    units[#units + 1] = function()
-                        pcall(function()
-                            el:Refresh(el.Values)
-                            if el.Display then el:Display() end
-                        end)
-                    end
-                end
-            end
-        end
-
-        return units
-    end
-    local function RunJob(job)
-        local units = job.Units
-        local total = #units
-        local i = 1
-        local budget = job.Budget
-        local chunk = job.Chunk
-        local onProg = job.OnProgress
-        local function slice()
-            if job.Cancelled then return end
-            local sliceStart = now()
-            local processed  = 0
-            while i <= total do
-                if now() - sliceStart >= budget then break end
-                if processed >= chunk then break end
-                local unit = units[i]
-                i = i + 1
-                processed = processed + 1
-                local ok, err = pcall(unit)
-                if not ok and job.Debug then
-                    warn("[WindUI:Refresh] unit error:", err)
-                end
-            end
-
-            if onProg then
-                pcall(onProg, i - 1, total)
-            end
-
-            if i > total then
-                job.Cancelled = true
-                if job.OnFinished then
-                    pcall(job.OnFinished, true)
-                end
-                return
-            end
-            if job.YieldMode == "Immediate" then
-                slice()
-            elseif job.YieldMode == "RenderStepped" then
-                RunService.RenderStepped:Wait()
-                slice()
-            else
-                RunService.Heartbeat:Wait()
-                slice()
-            end
-        end
-        slice()
-    end
-    function RefreshService:Start(WindUI, opts)
-        opts = opts or {}
-
-        local Scope = opts.Scope or DEFAULTS.Scope
-        local Budget = opts.Budget or DEFAULTS.Budget
-        local Chunk = opts.Chunk or DEFAULTS.Chunk
-        local YieldMode = opts.YieldMode or DEFAULTS.YieldMode
-        local token = opts.Token or Scope
-        local prev = ActiveJobs[token]
-        if prev then
-            prev.Cancelled = true
-            ActiveJobs[token] = nil
-        end
-
-        local units = BuildWorkUnits(WindUI, Scope, opts.Targets)
-
-        local job = {
-            Units = units,
-            Budget = Budget,
-            Chunk = Chunk,
-            YieldMode = YieldMode,
-            Cancelled = false,
-            OnProgress = opts.OnProgress,
-            OnFinished = opts.OnFinished,
-            Debug = opts.Debug,
-            Token = token,
-        }
-
-        ActiveJobs[token] = job
-        task.spawn(function()
-            RunJob(job)
-        end)
-        return {
-            Cancel = function()
-                job.Cancelled = true
-                if ActiveJobs[token] == job then
-                    ActiveJobs[token] = nil
-                end
-            end,
-            IsRunning = function()
-                return not job.Cancelled
-            end,
-            Total = #units,
-        }
-    end
-
-    function RefreshService:CancelAll()
-        for token, job in pairs(ActiveJobs) do
-            job.Cancelled = true
-            ActiveJobs[token] = nil
-        end
-    end
-
-    function RefreshService:IsAnyRunning()
-        return next(ActiveJobs) ~= nil
-    end
-    RefreshService.Defaults = DEFAULTS
-
-    WindUI_RefreshService = RefreshService
-end
-
 }end function a.aa()
 
 local aa=(cloneref or clonereference or function(aa)
@@ -12572,6 +12625,11 @@ aq,
 ar
 )
 
+function ar.RefreshAll(aB,opts)
+opts=type(opts)=="table"and opts or{}
+opts.Tab=ar
+return Window:RefreshAll(opts)
+end
 function ar.LockAll(aB)
 
 for b,d in next,Window.AllElements do
@@ -15129,6 +15187,18 @@ end
 return F
 end
 
+function aw.RefreshAll(C,F)
+return a.load'StaggerRefresh'.Run(aw,F)
+end
+function aw.CancelRefresh(C)
+local F=aw.__StaggerRefresh
+if F then F:Cancel()end
+end
+function aw.IsRefreshing(C)
+local F=aw.__StaggerRefresh
+return F~=nil and F.Running==true
+end
+
 function aw.GetUIScale(C,F)
 return av.WindUI.UIScale
 end
@@ -15137,22 +15207,6 @@ function aw.SetUIScale(C,F)
 av.WindUI.UIScale=F
 ap(av.WindUI.UIScaleObj,0.2,{Scale=F},Enum.EasingStyle.Quint,Enum.EasingDirection.Out):Play()
 return aw
-end
-
-function aw.RefreshAll(C, F)
-    F = F or {}
-    if F.Scope == nil then
-        F.Scope = "Shapes"
-    end
-    F.Token = F.Token or ("Window:" .. tostring(aw))
-    return WindUI_RefreshService:Start(av.WindUI, F)
-end
-
-function aw.RefreshEverything(C, F)
-    F = F or {}
-    F.Scope = "All"
-    F.Token = F.Token or ("Window:All:" .. tostring(aw))
-    return WindUI_RefreshService:Start(av.WindUI, F)
 end
 
 function aw.SetToTheCenter(C)
@@ -16116,19 +16170,6 @@ as.SetTheme(d)
 
 local f=gethwid or function()
 return ak.LocalPlayer.UserId
-end
-
-function aa.RefreshAll(az, aA)
-    aA = aA or {}
-    return WindUI_RefreshService:Start(aa, aA)
-end
-
-function aa.CancelRefreshes(az)
-    WindUI_RefreshService:CancelAll()
-end
-
-function aa.IsRefreshing(az)
-    return WindUI_RefreshService:IsAnyRunning()
 end
 
 local g=f()
