@@ -13332,7 +13332,7 @@ end
 
 
 return af
-function a.Refresher()
+end function a.Refresher()
     local RunService = (cloneref or clonereference or function(x) return x end)(game:GetService("RunService"))
     local Refresher = {}
     Refresher.__index = Refresher
@@ -13468,7 +13468,6 @@ function a.Refresher()
     end
 
     return Refresher
-end
 end function a.ae()
 
 
