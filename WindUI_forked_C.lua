@@ -13353,7 +13353,6 @@ end function a.Refresher()
         if not el then return end
         if el.SetTitle and el.Title ~= nil then safeCall(el.SetTitle, el, el.Title) end
         if el.SetDesc and el.Desc ~= nil then safeCall(el.SetDesc, el, el.Desc) end
-        if el.UpdateShape then safeCall(el.UpdateShape, el) end
         local frame = el.ElementFrame
             or (el.UIElements and el.UIElements.Main)
             or (el.Frame and el.Frame.UIElements and el.Frame.UIElements.Main)
