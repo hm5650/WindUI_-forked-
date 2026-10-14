@@ -13368,7 +13368,6 @@ end function a.Refresher()
                 end
             end
         end
-        if el.Refresh then safeCall(el.Refresh, el) end
     end
     local function collectElements(tab)
         local out = {}
