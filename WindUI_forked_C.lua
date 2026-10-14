@@ -11758,245 +11758,6 @@ end
 
 return C
 end
- function a.StaggerRefresh()
-local RunService=game:GetService"RunService"
-
-local R={}
-local DEFAULTS={
-ChunkSize=3,
-FrameBudget=0.004,
-StepDelay=0.03,
-CurrentTabFirst=true,
-SilentCallbacks=true,
-RefreshShapes=true,
-}
-
-local function safe(fn,...)
-if type(fn)~="function"then return true end
-local ok,err=pcall(fn,...)
-if not ok then
-warn("[ WindUI ] RefreshAll callback error: "..tostring(err))
-end
-return ok
-end
-
-local function toSet(v)
-if type(v)~="table"then return nil end
-local set={}
-for k,x in next,v do
-if type(k)=="number"then set[tostring(x)]=true else set[k]=x and true or nil end
-end
-return set
-end
-
-local function collect(win,cfg)
-local queue,seen,containers={},{},{}
-local types=toSet(cfg.Types)
-local filter=type(cfg.Filter)=="function"and cfg.Filter or nil
-
-local function walk(el,bucket)
-if type(el)~="table"or seen[el]then return end
-seen[el]=true
-bucket[#bucket+1]=el
-local kids=rawget(el,"Elements")
-if type(kids)=="table"then
-containers[#containers+1]=el
-local keys={}
-for k in next,kids do keys[#keys+1]=k end
-table.sort(keys,function(x,y)
-if type(x)=="number"and type(y)=="number"then return x<y end
-return tostring(x)<tostring(y)
-end)
-for _,k in ipairs(keys)do walk(kids[k],bucket)end
-end
-end
-
-local tabs={}
-local tm=win.TabModule
-if tm and type(tm.Tabs)=="table"then
-for _,tab in next,tm.Tabs do
-if type(tab)=="table"then tabs[#tabs+1]=tab end
-end
-end
-table.sort(tabs,function(x,y)return(tonumber(x.Index)or 0)<(tonumber(y.Index)or 0)end)
-
-if cfg.Tab then
-local only
-for _,t in ipairs(tabs)do if t==cfg.Tab then only=t break end end
-tabs=only and{only}or{}
-end
-
-if cfg.CurrentTabFirst and win.CurrentTab then
-for i,t in ipairs(tabs)do
-if t==win.CurrentTab or(t.Index~=nil and t.Index==win.CurrentTab)then
-table.remove(tabs,i)
-table.insert(tabs,1,t)
-break
-end
-end
-end
-
-local buckets={}
-for _,tab in ipairs(tabs)do
-local bucket={}
-if type(tab.Elements)=="table"then
-local keys={}
-for k in next,tab.Elements do keys[#keys+1]=k end
-table.sort(keys,function(x,y)
-if type(x)=="number"and type(y)=="number"then return x<y end
-return tostring(x)<tostring(y)
-end)
-for _,k in ipairs(keys)do walk(tab.Elements[k],bucket)end
-end
-containers[#containers+1]=tab
-buckets[#buckets+1]=bucket
-end
-
-if not cfg.Tab then
-local extra={}
-for _,el in next,win.AllElements do walk(el,extra)end
-buckets[#buckets+1]=extra
-end
-
-for _,bucket in ipairs(buckets)do
-for _,el in ipairs(bucket)do
-local t=rawget(el,"__type")
-if(not types or types[t])and(not filter or select(2,pcall(filter,el))==true)then
-queue[#queue+1]={kind="el",el=el}
-end
-end
-end
-
-if cfg.RefreshShapes and win.NewElements then
-local doneC={}
-for _,c in ipairs(containers)do
-if not doneC[c]and type(c.UpdateAllElementShapes)=="function"then
-doneC[c]=true
-queue[#queue+1]={kind="shape",container=c}
-end
-end
-end
-
-return queue
-end
-
-local function refreshElement(el,cfg,handle)
-local frame=el.ElementFrame
-if typeof(frame)=="Instance"and frame.Parent==nil then
-return
-end
-
-local newValues
-local hook=rawget(el,"OnRefresh")
-if type(hook)=="function"then
-local ok,res=pcall(hook,el)
-if ok then
-newValues=res
-else
-handle.Failed+=1
-warn("[ WindUI ] OnRefresh error: "..tostring(res))
-end
-end
-
-if rawget(el,"__type")=="Dropdown"and type(el.Refresh)=="function"then
-local values=type(newValues)=="table"and newValues or el.Values
-local savedCallback=el.Callback
-if cfg.SilentCallbacks then el.Callback=nil end
-local ok,err=pcall(el.Refresh,el,values)
-el.Callback=savedCallback
-if not ok then
-handle.Failed+=1
-warn("[ WindUI ] Dropdown refresh error: "..tostring(err))
-end
-end
-end
-
-function R.Run(win,opts)
-opts=type(opts)=="table"and opts or{}
-local cfg={}
-for k,v in next,DEFAULTS do cfg[k]=v end
-for k,v in next,opts do cfg[k]=v end
-cfg.ChunkSize=math.max(1,math.floor(tonumber(cfg.ChunkSize)or DEFAULTS.ChunkSize))
-cfg.FrameBudget=math.max(0.0005,tonumber(cfg.FrameBudget)or DEFAULTS.FrameBudget)
-cfg.StepDelay=math.max(0,tonumber(cfg.StepDelay)or DEFAULTS.StepDelay)
-
-if win.__StaggerRefresh then
-win.__StaggerRefresh:Cancel()
-end
-
-local queue=collect(win,cfg)
-local handle={
-Total=#queue,
-Done=0,
-Failed=0,
-Running=true,
-Cancelled=false,
-}
-win.__StaggerRefresh=handle
-
-local conn
-local function finish(cancelled)
-if not handle.Running then return end
-handle.Running=false
-handle.Cancelled=cancelled
-if conn then conn:Disconnect()conn=nil end
-if win.__StaggerRefresh==handle then win.__StaggerRefresh=nil end
-if not cancelled then
-safe(cfg.OnComplete,{Total=handle.Total,Done=handle.Done,Failed=handle.Failed})
-end
-end
-
-function handle.Cancel(self)
-finish(true)
-end
-
-function handle.Progress(self)
-return self.Total==0 and 1 or self.Done/self.Total
-end
-
-local acc=cfg.StepDelay
-conn=RunService.Heartbeat:Connect(function(dt)
-if win.Destroyed then
-return finish(true)
-end
-acc+=dt
-if acc<cfg.StepDelay then return end
-acc=0
-
-local t0=os.clock()
-local n=0
-local last
-while handle.Done<handle.Total do
-handle.Done+=1
-local item=queue[handle.Done]
-if item.kind=="el"then
-refreshElement(item.el,cfg,handle)
-last=item.el
-else
-local ok,err=pcall(item.container.UpdateAllElementShapes,item.container,item.container)
-if not ok then
-handle.Failed+=1
-warn("[ WindUI ] Shape refresh error: "..tostring(err))
-end
-end
-n+=1
-if n>=cfg.ChunkSize or os.clock()-t0>=cfg.FrameBudget then
-break
-end
-end
-
-safe(cfg.OnProgress,handle.Done,handle.Total,last)
-
-if handle.Done>=handle.Total then
-finish(false)
-end
-end)
-
-return handle
-end
-
-return R
-end
  function a._()
 
 return{
@@ -12037,9 +11798,6 @@ at.UIScale=ao
 at.ElementsModule=an local
 
 au, av=ar:New(at)
-if type(av)=="table"and typeof(at.OnRefresh)=="function"then
-av.OnRefresh=at.OnRefresh
-end
 
 if at.Flag and typeof(at.Flag)=="string"then
 if ak.CurrentConfig then
@@ -12625,11 +12383,6 @@ aq,
 ar
 )
 
-function ar.RefreshAll(aB,opts)
-opts=type(opts)=="table"and opts or{}
-opts.Tab=ar
-return Window:RefreshAll(opts)
-end
 function ar.LockAll(aB)
 
 for b,d in next,Window.AllElements do
@@ -13576,7 +13329,147 @@ end)
 return ap
 end
 
-return af end function a.ae()
+
+
+return af
+function a.Refresher()
+    local RunService = (cloneref or clonereference or function(x) return x end)(game:GetService("RunService"))
+    local Refresher = {}
+    Refresher.__index = Refresher
+    local DEFAULTS = {
+        Budget = 0.004,
+        Batch = 8,
+        StaggerWait = 0,
+        VisibilitySettle = 0.08,
+    }
+    local function safeCall(fn, ...)
+        if type(fn) ~= "function" then return end
+        local ok, err = pcall(fn, ...)
+        if not ok and a.load and a.load'd' then
+            warn("[ WindUI.Refresher] " .. tostring(err))
+        end
+    end
+    local function refreshElement(el)
+        if not el then return end
+        if el.SetTitle and el.Title ~= nil then safeCall(el.SetTitle, el, el.Title) end
+        if el.SetDesc and el.Desc ~= nil then safeCall(el.SetDesc, el, el.Desc) end
+        if el.UpdateShape then safeCall(el.UpdateShape, el) end
+        local frame = el.ElementFrame
+            or (el.UIElements and el.UIElements.Main)
+            or (el.Frame and el.Frame.UIElements and el.Frame.UIElements.Main)
+        if frame and frame:IsA("GuiObject") then
+            local wasAuto = frame.AutomaticSize
+            frame.AutomaticSize = Enum.AutomaticSize.None
+            frame.AutomaticSize = wasAuto
+            for _, child in ipairs(frame:GetChildren()) do
+                if child:IsA("GuiObject") and child.AutomaticSize ~= Enum.AutomaticSize.None then
+                    local c = child.AutomaticSize
+                    child.AutomaticSize = Enum.AutomaticSize.None
+                    child.AutomaticSize = c
+                end
+            end
+        end
+        if el.Refresh then safeCall(el.Refresh, el) end
+    end
+    local function collectElements(tab)
+        local out = {}
+        if not tab or not tab.Elements then return out end
+        for _, el in next, tab.Elements do
+            if el and el.__type then
+                out[#out + 1] = el
+            end
+        end
+        return out
+    end
+    local function runChunked(list, opts, onDone)
+        opts = opts or {}
+        local budget = opts.Budget or DEFAULTS.Budget
+        local batch = opts.Batch or DEFAULTS.Batch
+        local staggerWait = opts.StaggerWait or DEFAULTS.StaggerWait
+        local token = {}
+        local i = 1
+        local n = #list
+        local thread = task.spawn(function()
+            local t0 = os.clock()
+            while i <= n do
+                if opts.Token and opts.Token.Cancelled then
+                    break
+                end
+                local processed = 0
+                while processed < batch and i <= n do
+                    refreshElement(list[i])
+                    i = i + 1
+                    processed = processed + 1
+                    if os.clock() - t0 >= budget then
+                        break
+                    end
+                end
+                if i <= n then
+                    if staggerWait > 0 then
+                        task.wait(staggerWait)
+                    else
+                        RunService.Heartbeat:Wait()
+                    end
+                    t0 = os.clock()
+                end
+            end
+            if onDone then
+                task.defer(onDone)
+            end
+        end)
+        return {
+            Token = token,
+            Thread = thread,
+            Cancel = function()
+                token.Cancelled = true
+                if coroutine.status(thread) == "suspended" then
+                    pcall(task.cancel, thread)
+                end
+            end,
+        }
+    end
+    function Refresher.RefreshTab(tab, opts)
+        opts = opts or {}
+        local list = collectElements(tab)
+        return runChunked(list, opts)
+    end
+    function Refresher.RefreshAllTabs(tabModule, opts)
+        opts = opts or {}
+        local all = {}
+        for _, tab in next, tabModule.Tabs do
+            local els = collectElements(tab)
+            for k = 1, #els do
+                all[#all + 1] = els[k]
+            end
+        end
+        local merged = {
+            Budget = opts.Budget or DEFAULTS.Budget,
+            Batch = opts.Batch or DEFAULTS.Batch,
+            StaggerWait = opts.StaggerWait or 0,
+            Token = opts.Token,
+        }
+        return runChunked(all, merged, opts.OnDone)
+    end
+    function Refresher.RefreshSelected(tabModule, opts)
+        local idx = tabModule.SelectedTab
+        if not idx or not tabModule.Tabs[idx] then return nil end
+        return Refresher.RefreshTab(tabModule.Tabs[idx], opts)
+    end
+    function Refresher.MakeCooldown(seconds)
+        local last = 0
+        return function()
+            local now = os.clock()
+            if now - last >= (seconds or 0.25) then
+                last = now
+                return true
+            end
+            return false
+        end
+    end
+
+    return Refresher
+end
+end function a.ae()
 
 
 
@@ -15187,18 +15080,6 @@ end
 return F
 end
 
-function aw.RefreshAll(C,F)
-return a.load'StaggerRefresh'.Run(aw,F)
-end
-function aw.CancelRefresh(C)
-local F=aw.__StaggerRefresh
-if F then F:Cancel()end
-end
-function aw.IsRefreshing(C)
-local F=aw.__StaggerRefresh
-return F~=nil and F.Running==true
-end
-
 function aw.GetUIScale(C,F)
 return av.WindUI.UIScale
 end
@@ -15293,14 +15174,45 @@ aw.CurrentTab=H
 end)
 
 aw.TabModule=G
+local Refresher = a.load'Refresher'
+function aw.RefreshTab(tabOrIndex, opts)
+    local tab = tabOrIndex
+    if type(tabOrIndex) == "number" then
+        tab = G.Tabs[tabOrIndex]
+    end
+    if not tab then return nil end
+    return Refresher.RefreshTab(tab, opts)
+end
+
+function aw.RefreshTabs(opts)
+    return Refresher.RefreshAllTabs(G, opts)
+end
+
+function aw.RefreshCurrentTab(opts)
+    return Refresher.RefreshSelected(G, opts)
+end
+
+function aw.GetRefresher()
+    return Refresher
+end
+
+function G.RefreshAll(opts)
+    return Refresher.RefreshAllTabs(G, opts)
+end
+
+function G.RefreshTab(tabOrIndex, opts)
+    local tab = type(tabOrIndex) == "number" and G.Tabs[tabOrIndex] or tabOrIndex
+    if not tab then return nil end
+    return Refresher.RefreshTab(tab, opts)
+end
 
 function aw.Tab(H,J)
-J.Parent=aw.UIElements.SideBar.Frame
-return G.New(J,av.WindUI.UIScale)
+    J.Parent=aw.UIElements.SideBar.Frame
+    return G.New(J,av.WindUI.UIScale)
 end
 
 function aw.SelectTab(H,J)
-G:SelectTab(J)
+    G:SelectTab(J)
 end
 
 function aw.Section(H,J)
