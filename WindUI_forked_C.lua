@@ -13340,35 +13340,131 @@ end function a.Refresher()
         Budget = 0.004,
         Batch = 8,
         StaggerWait = 0,
-        VisibilitySettle = 0.08,
     }
     local function safeCall(fn, ...)
-        if type(fn) ~= "function" then return end
-        local ok, err = pcall(fn, ...)
-        if not ok and a.load and a.load'd' then
-            warn("[ WindUI.Refresher] " .. tostring(err))
+        if type(fn) ~= "function" then return nil end
+        local ok, result = pcall(fn, ...)
+        if not ok then
+            warn("[WindUI.Refresher] " .. tostring(result))
+        end
+        return result
+    end
+    local function forceToggle(el)
+        if type(el.Set) == "function" and el.Value ~= nil then
+            safeCall(el.Set, el, el.Value, false, true)
+        end
+        local tkf = el.ToggleFrame
+        if not tkf then return end
+        local ui = tkf.UIElements
+        if not ui or not ui.Main then return end
+        local main = ui.Main
+        local tk = main.ToggleFrame
+        if not tk then
+            tk = main.Frame and main.Frame.ToggleFrame
+        end
+        if not tk or not tk.Frame then return end
+        local frame = tk.Frame
+        local barFrame = frame
+        local inner = frame:FindFirstChild("Bar")
+        local knob = inner and inner:FindFirstChild("Thumb")
+        local on = el.Value and true or false
+    end
+    local function forceSlider(el)
+        local ui = el.UIElements
+        if not ui then return end
+        local val = (el.Value and el.Value.Default) or 0
+        local mn = (el.Value and el.Value.Min) or 0
+        local mx = (el.Value and el.Value.Max) or 100
+        local ratio = (mx == mn) and 0 or math.clamp((val - mn) / (mx - mn), 0, 1)
+        local sliderIcon = ui.SliderIcon
+        if sliderIcon and sliderIcon.Frame then
+            sliderIcon.Frame.Size = UDim2.new(ratio, 0, 1, 0)
+        end
+        local container = ui.SliderContainer
+        if container and container.TextBox then
+            container.TextBox.Text = tostring(val)
         end
     end
+    local function forceInput(el)
+        if type(el.Set) == "function" and el.Value ~= nil then
+            safeCall(el.Set, el, el.Value)
+        end
+    end
+    local function forceKeybind(el)
+        if type(el.Set) == "function" and el.Value ~= nil then
+            safeCall(el.Set, el, el.Value)
+        end
+    end
+    local function forceDropdown(el)
+        if type(el.Display) == "function" then
+            safeCall(el.Display, el)
+        end
+    end
+    local function forceProgressBar(el)
+        local ui = el.UIElements
+        if not ui or not ui.Fill then return end
+        local val = (el.Value and el.Value.Default) or 0
+        local mn = (el.Value and el.Value.Min) or 0
+        local mx = (el.Value and el.Value.Max) or 100
+        local ratio = (mx == mn) and 0 or math.clamp((val - mn) / (mx - mn), 0, 1)
+        ui.Fill.Size = UDim2.new(ratio, 0, 1, 0)
+        if ui.Value then
+            ui.Value.Text = tostring(val)
+        end
+    end
+
+    local function forceColorpicker(el)
+        local ui = el.UIElements
+        if not ui or not ui.Colorpicker then return end
+        ui.Colorpicker.ImageColor3 = el.Default or Color3.new(1, 1, 1)
+        ui.Colorpicker.ImageTransparency = el.Transparency or 0
+    end
+
+    local function reapplyValue(el)
+        local t = el.__type
+        if t == "Toggle" then
+            forceToggle(el)
+        elseif t == "Slider" then
+            forceSlider(el)
+        elseif t == "Input" then
+            forceInput(el)
+        elseif t == "Keybind" then
+            forceKeybind(el)
+        elseif t == "Dropdown" then
+            forceDropdown(el)
+        elseif t == "ProgressBar" then
+            forceProgressBar(el)
+        elseif t == "Colorpicker" then
+            forceColorpicker(el)
+        end
+    end
+    local function nudgeFrame(frame)
+        if not frame or not frame:IsA("GuiObject") or not frame.Parent then return end
+        local sz = frame.Size
+        if sz.Y.Scale == 0 then
+            frame.Size = UDim2.new(sz.X.Scale, sz.X.Offset, 0, sz.Y.Offset + 0.5)
+            frame.Size = sz
+        else
+            frame.Size = UDim2.new(sz.X.Scale, sz.X.Offset + 0.5, sz.Y.Scale, sz.Y.Offset)
+            frame.Size = sz
+        end
+    end
+
     local function refreshElement(el)
         if not el then return end
-        if el.SetTitle and el.Title ~= nil then safeCall(el.SetTitle, el, el.Title) end
-        if el.SetDesc and el.Desc ~= nil then safeCall(el.SetDesc, el, el.Desc) end
+        if el.SetTitle and el.Title ~= nil then
+            safeCall(el.SetTitle, el, el.Title)
+        end
+        if el.SetDesc and el.Desc ~= nil then
+            safeCall(el.SetDesc, el, el.Desc)
+        end
+        reapplyValue(el)
         local frame = el.ElementFrame
             or (el.UIElements and el.UIElements.Main)
             or (el.Frame and el.Frame.UIElements and el.Frame.UIElements.Main)
-        if frame and frame:IsA("GuiObject") then
-            local wasAuto = frame.AutomaticSize
-            frame.AutomaticSize = Enum.AutomaticSize.None
-            frame.AutomaticSize = wasAuto
-            for _, child in ipairs(frame:GetChildren()) do
-                if child:IsA("GuiObject") and child.AutomaticSize ~= Enum.AutomaticSize.None then
-                    local c = child.AutomaticSize
-                    child.AutomaticSize = Enum.AutomaticSize.None
-                    child.AutomaticSize = c
-                end
-            end
-        end
+        nudgeFrame(frame)
     end
+
     local function collectElements(tab)
         local out = {}
         if not tab or not tab.Elements then return out end
@@ -13384,35 +13480,40 @@ end function a.Refresher()
         local budget = opts.Budget or DEFAULTS.Budget
         local batch = opts.Batch or DEFAULTS.Batch
         local staggerWait = opts.StaggerWait or DEFAULTS.StaggerWait
-        local token = {}
+        local token = opts.Token or {}
         local i = 1
         local n = #list
         local thread = task.spawn(function()
-            local t0 = os.clock()
-            while i <= n do
-                if opts.Token and opts.Token.Cancelled then
-                    break
-                end
-                local processed = 0
-                while processed < batch and i <= n do
-                    refreshElement(list[i])
-                    i = i + 1
-                    processed = processed + 1
-                    if os.clock() - t0 >= budget then
-                        break
+            pcall(function()
+                if n == 0 then return end
+                local t0 = os.clock()
+                while i <= n do
+                    if token.Cancelled then break end
+                    local processed = 0
+                    while processed < batch and i <= n do
+                        local el = list[i]
+                        pcall(refreshElement, el)
+                        i = i + 1
+                        processed = processed + 1
+                        if os.clock() - t0 >= budget then break end
+                    end
+                    if i <= n then
+                        if staggerWait > 0 then
+                            task.wait(staggerWait)
+                        else
+                            RunService.Heartbeat:Wait()
+                        end
+                        t0 = os.clock()
                     end
                 end
-                if i <= n then
-                    if staggerWait > 0 then
-                        task.wait(staggerWait)
-                    else
-                        RunService.Heartbeat:Wait()
-                    end
-                    t0 = os.clock()
-                end
-            end
+            end)
             if onDone then
-                task.defer(onDone)
+                task.defer(function()
+                    local ok, err = pcall(onDone)
+                    if not ok then
+                        warn("[WindUI.Refresher] OnDone error: " .. tostring(err))
+                    end
+                end)
             end
         end)
         return {
@@ -13429,7 +13530,7 @@ end function a.Refresher()
     function Refresher.RefreshTab(tab, opts)
         opts = opts or {}
         local list = collectElements(tab)
-        return runChunked(list, opts)
+        return runChunked(list, opts, opts.OnDone)
     end
     function Refresher.RefreshAllTabs(tabModule, opts)
         opts = opts or {}
@@ -13464,7 +13565,6 @@ end function a.Refresher()
             return false
         end
     end
-
     return Refresher
 end function a.ae()
 
