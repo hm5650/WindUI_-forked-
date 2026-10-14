@@ -8475,15 +8475,42 @@ ap.Tabs={}
 if ap.SearchBarEnabled then
 if not at then
 at=aj("Search...","search",ap.UIElements.Menu,nil,function(aw)
-for ax,ay in next,ap.Tabs do
-if string.find(string.lower(ay.Name),string.lower(aw),1,true)then
-ay.UIElements.TabItem.Visible=true
-else
-ay.UIElements.TabItem.Visible=false
+ap.__SearchToken=(ap.__SearchToken or 0)+1
+local token=ap.__SearchToken
+local query=string.lower(aw)
+
+local list={}
+for _,item in next,ap.Tabs do
+list[#list+1]=item
 end
+
+task.spawn(function()
+local rs=game:GetService"RunService"
+local t0=os.clock()
+for i=1,#list do
+if ap.__SearchToken~=token then return end
+local item=list[i]
+local tabItem=item.UIElements and item.UIElements.TabItem
+if tabItem then
+local lname=item.__lname
+if not lname then
+lname=string.lower(tostring(item.Name))
+item.__lname=lname
+end
+local show=query==""or string.find(lname,query,1,true)~=nil
+if tabItem.Visible~=show then
+tabItem.Visible=show
+end
+end
+if os.clock()-t0>=0.004 then
+rs.Heartbeat:Wait()
+t0=os.clock()
+end
+end
+if ap.__SearchToken~=token then return end
 RecalculateListSize()
 RecalculateCanvasSize()
-end
+end)
 end,true)
 at.Size=UDim2.new(1,0,0,aq.SearchBarHeight)
 at.Position=UDim2.new(0,0,0,0)
@@ -13105,43 +13132,19 @@ local ay=string.lower(aw)
 return string.find(ax,ay,1,true)~=nil
 end
 
-local function Search(av)
-if not av or av==""then
-return{}
-end
-
-local aw={}
-for ax,ay in next,am.Tabs do
-local az=ContainsText(ay.Title or"",av)
-local aA={}
-
-for aB,b in next,ay.Elements do
-if b.__type~="Section"then
-local d=ContainsText(b.Title or"",av)
-local f=ContainsText(b.Desc or"",av)
-
-if d or f then
-aA[aB]={
-Title=b.Title,
-Desc=b.Desc,
-Original=b,
-__type=b.__type,
-Index=aB,
+local SearchState={
+Token=0,
+Budget=0.004,
+Debounce=0.1,
 }
-end
-end
-end
+local SearchRS=(cloneref or clonereference or function(x)return x end)(game:GetService"RunService")
 
-if az or next(aA)~=nil then
-aw[ax]={
-Tab=ay,
-Title=ay.Title,
-Icon=ay.Icon,
-Elements=aA,
-}
+local function SearchYield(t0)
+if os.clock()-t0>=SearchState.Budget then
+SearchRS.Heartbeat:Wait()
+return os.clock()
 end
-end
-return aw
+return t0
 end
 
 ai.AddSignal(as.UIListLayout:GetPropertyChangedSignal"AbsoluteContentSize",function()
@@ -13197,48 +13200,111 @@ ap:Open()
 function ap.Search(av,aw)
 aw=aw or""
 
-local ax=Search(aw)
+SearchState.Token=SearchState.Token+1
+local token=SearchState.Token
+
+if aw==""then
+as.Visible=false
+at.Frame.Results.Frame.Visible=false
+end
+
+task.spawn(function()
+local function Stale()
+return token~=SearchState.Token or not as.Parent
+end
+
+local t0=os.clock()
+
+if aw~=""and SearchState.Debounce>0 then
+task.wait(SearchState.Debounce)
+if Stale()then return end
+t0=os.clock()
+end
+
+local old=as:GetChildren()
+for _,child in next,old do
+if child.ClassName~="UIListLayout"and child.ClassName~="UIPadding"then
+child:Destroy()
+t0=SearchYield(t0)
+if Stale()then return end
+end
+end
+
+if aw==""then return end
 
 as.Visible=true
 at.Frame.Results.Frame.Visible=true
-for ay,az in next,as:GetChildren()do
-if az.ClassName~="UIListLayout"and az.ClassName~="UIPadding"then
-az:Destroy()
+
+local query=string.lower(aw)
+local function Has(text)
+return type(text)=="string"
+and text~=""
+and string.find(string.lower(text),query,1,true)~=nil
+end
+
+local tabList,allNumeric={},true
+for key,tab in next,am.Tabs do
+tabList[#tabList+1]={key,tab}
+if type(key)~="number"then allNumeric=false end
+end
+if allNumeric then
+table.sort(tabList,function(x,y)return x[1]<y[1]end)
+end
+
+local found=0
+
+for i=1,#tabList do
+local key,tab=tabList[i][1],tabList[i][2]
+local tabHit=Has(tab.Title)
+
+local snapshot,count={},0
+if tab.Elements then
+for idx,el in next,tab.Elements do
+count=count+1
+snapshot[count]={idx,el}
 end
 end
 
-if ax and next(ax)~=nil then
-for ay,az in next,ax do
-local aA=ap.Icons.Tab
-local aB=CreateSearchTab(az.Title,nil,aA,as,true,function()
+local hits={}
+for j=1,count do
+local idx,el=snapshot[j][1],snapshot[j][2]
+if el.__type~="Section"and(Has(el.Title)or Has(el.Desc))then
+hits[#hits+1]={idx,el}
+end
+t0=SearchYield(t0)
+if Stale()then return end
+end
+
+if tabHit or#hits>0 then
+if allNumeric then
+table.sort(hits,function(x,y)return x[1]<y[1]end)
+end
+
+found=found+1
+local row=CreateSearchTab(tab.Title,nil,ap.Icons.Tab,as,true,function()
 ap:Close()
-am:SelectTab(ay)
+am:SelectTab(key)
 end)
-if az.Elements and next(az.Elements)~=nil then
-for b,d in next,az.Elements do
-local f=ap.Icons[d.__type]
-CreateSearchTab(
-d.Title,
-d.Desc,
-f,
-aB:FindFirstChild"ParentContainer"and aB.ParentContainer.Frame
-or nil,
-false,
-function()
+t0=SearchYield(t0)
+if Stale()then return end
+
+local container=row:FindFirstChild"ParentContainer"and row.ParentContainer.Frame or nil
+for h=1,#hits do
+local idx,el=hits[h][1],hits[h][2]
+CreateSearchTab(el.Title,el.Desc,ap.Icons[el.__type],container,false,function()
 ap:Close()
-am:SelectTab(ay)
-if az.Tab.ScrollToTheElement then
+am:SelectTab(key)
+if tab.ScrollToTheElement then
+tab:ScrollToTheElement(idx)
+end
+end)
+t0=SearchYield(t0)
+if Stale()then return end
+end
+end
+end
 
-az.Tab:ScrollToTheElement(d.Index)
-end
-
-end
-)
-
-end
-end
-end
-elseif aw~=""then
+if found==0 then
 ak("TextLabel",{
 Size=UDim2.new(1,0,0,70),
 Text="No results found",
@@ -13252,10 +13318,8 @@ FontFace=Font.new(ai.Font,Enum.FontWeight.Medium),
 Parent=as,
 Name="NotFound",
 })
-else
-as.Visible=false
-at.Frame.Results.Frame.Visible=false
 end
+end)
 end
 
 ai.AddSignal(aq:GetPropertyChangedSignal"Text",function()
