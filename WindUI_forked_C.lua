@@ -14525,10 +14525,10 @@ end
 aw.BackgroundImageTransparency=math.floor(B*10+0.5)/10
 end
 
-function aw.SetBackgroundTransparency(A, B)
-    local C = math.floor(tonumber(B) * 10 + 0.5) / 10
-    av.WindUI.TransparencyValue = C
-    aw:ToggleTransparency(C > 0)
+function aw.SetBackgroundTransparency(A,B)
+local C=math.floor(tonumber(B)*10+0.5)/10
+av.WindUI.TransparencyValue=C
+aw:ToggleTransparency(C>0)
 end
 
 local A
@@ -14894,39 +14894,13 @@ end
 end
 
 function aw.ToggleTransparency(C,F)
-    aw.Transparent = F
-    av.WindUI.Transparent = F
-    local tv = F and av.WindUI.TransparencyValue or 0
-    aw.UIElements.Main.Background.ImageTransparency = tv
-    if aw.UIElements.SideBarContainer then
-        aw.UIElements.SideBarContainer.BackgroundTransparency = tv
-    end
-    if aw.UIElements.MainBar and aw.UIElements.MainBar.Background then
-        aw.UIElements.MainBar.Background.ImageTransparency = tv
-    end
-    if aw.UIElements.Main and aw.UIElements.Main.Main and aw.UIElements.Main.Main.Topbar then
-        aw.UIElements.Main.Main.Topbar.BackgroundTransparency = tv
-    end
-    if d then
-        d.UserIcon.ImageTransparency = tv
-        d.Outline.ImageTransparency = tv
-    end
-    if aw.UIElements.Main and aw.UIElements.Main.Main then
-        local main = aw.UIElements.Main.Main
-        if main:FindFirstChild("Topbar") then
-            main.Topbar.BackgroundTransparency = tv
-        end
-    end
-    if aw.TabModule and aw.TabModule.Containers then
-        for _, container in next, aw.TabModule.Containers do
-            if container:FindFirstChild("Background") then
-                container.Background.ImageTransparency = tv
-            end
-        end
-    end
-    if aw.UIElements.SideBar and aw.UIElements.SideBar.Frame then
-        aw.UIElements.SideBar.Frame.BackgroundTransparency = tv
-    end
+
+aw.Transparent=F
+av.WindUI.Transparent=F
+
+aw.UIElements.Main.Background.ImageTransparency=F and av.WindUI.TransparencyValue or 0
+
+
 end
 
 function aw.LockAll(C)
