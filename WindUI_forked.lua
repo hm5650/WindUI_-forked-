@@ -11968,7 +11968,7 @@ Locked=ap.Locked,
 ShowTabTitle=ap.ShowTabTitle,
 TabTitleAlign=ap.TabTitleAlign or"Left",
 CustomEmptyPage=(ap.CustomEmptyPage and next(ap.CustomEmptyPage)~=nil)and ap.CustomEmptyPage
-or{Icon="lucide:frown",IconSize=48,Title="This tab is Empty",Desc=nil},
+or{Icon="lucide:hammer",IconSize=48,Title="This tab is loading lmafo",Desc=nil},
 Border=ap.Border,
 Selected=false,
 Index=nil,
