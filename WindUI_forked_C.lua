@@ -11488,6 +11488,123 @@ Keybind=true,Input=true,Dropdown=true,Code=true,Colorpicker=true,Image=true,
 }
 local WRAP={"Lock","Unlock","Highlight","SetImage","SetThumbnail"}
 local HOLD=0.4
+local function snap(v)
+if type(v)=="table"then
+local t={}
+for k,x in next,v do t[k]=x end
+return t
+end
+return v
+end
+
+local function same(a,b)
+if a==b then return true end
+if type(a)=="table"and type(b)=="table"then
+for k,v in next,a do if b[k]~=v then return false end end
+for k in next,b do if a[k]==nil then return false end end
+return true
+end
+return false
+end
+
+local function safeGet(fn,el)
+local ok,v=pcall(fn,el)
+if ok then return true,v end
+return false,nil
+end
+
+local KIND={
+Toggle={
+get=function(el)return el.Value==true end,
+norm=function(el,v)return v==true end,
+write=function(el,v)el.Value=v end,
+apply=function(el,v,instant)el:Set(v,false,instant)end,
+},
+Slider={
+get=function(el)
+local d=el.Value and el.Value.Default
+return tonumber(d)or d
+end,
+norm=function(el,v)return tonumber(v)end,
+write=function(el,v)if type(el.Value)=="table"then el.Value.Default=v end end,
+apply=function(el,v)el:Set(v)end,
+matches=function(el,v)
+local tb=el.UIElements.SliderContainer.TextBox
+return tonumber(tb.Text)==tonumber(v)
+end,
+silent=true,
+},
+ProgressBar={
+get=function(el)
+local d=el.Value and el.Value.Default
+return tonumber(d)or d
+end,
+norm=function(el,v)return tonumber(v)end,
+write=function(el,v)if type(el.Value)=="table"then el.Value.Default=v end end,
+apply=function(el,v)el:Set(v)end,
+nocb=true,
+},
+Input={
+get=function(el)return el.Value end,
+norm=function(el,v)return v==nil and""or tostring(v)end,
+write=function(el,v)el.Value=v end,
+apply=function(el,v)el:Set(v)end,
+silent=true,
+},
+Keybind={
+get=function(el)return el.Value end,
+write=function(el,v)el.Value=v end,
+apply=function(el,v)el:Set(v)end,
+},
+Dropdown={
+get=function(el)return el.Value end,
+write=function(el,v)el.Value=v end,
+apply=function(el,v)el:Select(v)end,
+silent=true,
+},
+Colorpicker={
+get=function(el)return{el.Default,el.Transparency or 0}end,
+norm=function(el,v)
+if typeof(v)=="Color3"then return{v,el.Transparency or 0}end
+if type(v)=="table"then return{v[1],v[2]or el.Transparency or 0}end
+return nil
+end,
+write=function(el,v)
+el.Default=v[1]
+el.Transparency=v[2]
+end,
+apply=function(el,v)el:Update(v[1],v[2])end,
+matches=function(el,v)
+return el.UIElements.Colorpicker.ImageColor3==v[1]
+end,
+silent=true,
+},
+}
+
+local function bindFrom(item,src,key,xf)
+if src==nil then item.Bind=nil return end
+local b={Last=nil,Seen=false}
+if type(src)=="function"then
+b.Get=src
+elseif type(src)=="table"then
+if key==nil and src.Table~=nil then
+b.Get=function()return src.Table[src.Key]end
+xf=xf or src.Transform
+elseif key==nil and src[1]~=nil and src[2]~=nil then
+local t,k=src[1],src[2]
+b.Get=function()return t[k]end
+xf=xf or src[3]
+else
+b.Get=function()return src[key]end
+end
+else
+item.Bind=nil
+return
+end
+b.Xf=xf
+item.Bind=b
+end
+
 
 local C={}
 C.__index=C
@@ -11539,6 +11656,9 @@ f.AutomaticSize=Enum.AutomaticSize.Y
 f.Size=item.OrigSize
 end
 item.Hold=os.clock()+HOLD
+if item.Pending and item.Owner and item.Owner.Items[item.El]then
+item.Owner:_flush(item,true)
+end
 end
 
 function C.new(win)
@@ -11550,9 +11670,14 @@ Groups={},
 Enabled=win.RectCulling~=false,
 Dirty=true,
 Acc=0,
+SyncAcc=0,
+SyncList={},
+ListDirty=true,
+Cursor=0,
 },C)
 self.Conn=RunService.Heartbeat:Connect(function(dt)
 self:Step(dt)
+self:SyncStep(dt)
 end)
 return self
 end
@@ -11569,9 +11694,69 @@ WindUI=cfg and cfg.WindUI,
 Hidden={},
 Culled=false,
 Hold=0,
+Owner=self,
+Pending=false,
+Applying=false,
 }
 self.Items[el]=item
 self.Pending[#self.Pending+1]=item
+self.ListDirty=true
+
+local kind=KIND[el.__type]
+if kind then
+local okv,v0=safeGet(kind.get,el)
+item.Shown=okv and snap(v0)or nil
+
+for _,setter in ipairs{"Set","Select"}do
+local origSet=rawget(el,setter)
+if type(origSet)=="function"then
+el[setter]=function(...)
+local a,b,c=origSet(...)
+if not item.Applying then
+local ok2,v=safeGet(kind.get,el)
+if ok2 then
+item.Shown=snap(v)
+item.Pending=false
+end
+end
+return a,b,c
+end
+end
+end
+
+if not kind.nocb and el.__type~="Toggle"then
+local origCb=rawget(el,"Callback")
+if type(origCb)=="function"then
+el.Callback=function(...)
+if not item.Applying then
+local ok2,v=safeGet(kind.get,el)
+if ok2 then
+item.Shown=snap(v)
+item.Pending=false
+end
+end
+return origCb(...)
+end
+end
+end
+
+function el.Bind(_,src,key,xf)
+bindFrom(item,src,key,xf)
+return el
+end
+function el.Unbind()
+item.Bind=nil
+return el
+end
+function el.Sync()
+self:_syncItem(item,false,true)
+return el
+end
+
+if cfg and cfg.Bind~=nil then
+bindFrom(item,cfg.Bind)
+end
+end
 
 for _,name in ipairs(WRAP)do
 local orig=rawget(el,name)
@@ -11589,6 +11774,7 @@ function C:Unregister(el)
 local item=self.Items[el]
 if not item then return end
 self.Items[el]=nil
+self.ListDirty=true
 if item.Group then item.Group.Items[item]=nil end
 for i,p in ipairs(self.Pending)do
 if p==item then table.remove(self.Pending,i)break end
@@ -11720,6 +11906,141 @@ end
 end
 end
 
+local function isHiddenNow(item,closed)
+if item.Culled or closed then return true end
+local g=item.Group
+if g then
+local canvas=g.Scroll.Parent
+if canvas and canvas:IsA"GuiObject"and not canvas.Visible then return true end
+end
+return false
+end
+
+function C:_flush(item,instant)
+local el=item.El
+local kind=KIND[el.__type]
+if not kind then item.Pending=false return end
+local ok,cur=safeGet(kind.get,el)
+if not ok then return end
+item.Pending=false
+item.Shown=snap(cur)
+if cur==nil and el.__type~="Dropdown"then return end
+
+local cb
+if kind.silent then
+cb=rawget(el,"Callback")
+el.Callback=function()end
+end
+item.Applying=true
+local okA,err=pcall(kind.apply,el,cur,instant==true)
+item.Applying=false
+if kind.silent then el.Callback=cb end
+if not okA and self.Window.Debug then
+warn("[ WindUI.AutoSync ] apply failed for "..tostring(el.__type)..": "..tostring(err))
+end
+end
+
+function C:_syncItem(item,closed,force)
+local el=item.El
+local kind=KIND[el.__type]
+if not kind then return end
+
+local b=item.Bind
+if b then
+local okb,bv=pcall(b.Get)
+if okb and(not b.Seen or not same(bv,b.Last))then
+b.Seen=true
+b.Last=snap(bv)
+if bv~=nil then
+if b.Xf then
+local okx,xv=pcall(b.Xf,bv)
+if okx then bv=xv end
+end
+if kind.norm then bv=kind.norm(el,bv)end
+local okc,cur=safeGet(kind.get,el)
+if bv~=nil and okc and not same(cur,bv)then
+kind.write(el,bv)
+end
+end
+end
+end
+
+local ok,cur=safeGet(kind.get,el)
+if not ok then return end
+if same(cur,item.Shown)then
+if item.Pending then item.Pending=false end
+return
+end
+
+if kind.matches then
+local okm,m=pcall(kind.matches,el,cur)
+if okm and m then
+item.Shown=snap(cur)
+item.Pending=false
+return
+end
+end
+
+if not force and isHiddenNow(item,closed)then
+item.Pending=true
+return
+end
+self:_flush(item,force==true)
+end
+
+function C:SyncStep(dt)
+local win=self.Window
+if win.AutoSync==false or win.Destroyed then return end
+self.SyncAcc+=dt
+if self.SyncAcc<(tonumber(win.SyncInterval)or 0.1)then return end
+self.SyncAcc=0
+
+if self.ListDirty then
+local list=self.SyncList
+table.clear(list)
+for el,item in next,self.Items do
+if KIND[el.__type]then list[#list+1]=item end
+end
+self.ListDirty=false
+end
+
+local list=self.SyncList
+local n=#list
+if n==0 then return end
+local count=math.min(math.max(1,tonumber(win.SyncBudget)or 40),n)
+local closed=win.Closed==true
+
+for _=1,count do
+local cur=self.Cursor+1
+if cur>n then cur=1 end
+self.Cursor=cur
+local item=list[cur]
+if item then
+if not item.Frame.Parent then
+self.Items[item.El]=nil
+self.ListDirty=true
+else
+local ok,err=pcall(self._syncItem,self,item,closed,false)
+if not ok and win.Debug then warn("[ WindUI.AutoSync ] "..tostring(err))end
+end
+end
+end
+end
+
+function C:SyncAll()
+for _,item in next,self.Items do
+pcall(self._syncItem,self,item,false,true)
+end
+end
+
+function C:SyncPendingCount()
+local n=0
+for _,item in next,self.Items do
+if item.Pending then n+=1 end
+end
+return n
+end
+
 function C:RestoreAll()
 for _,item in next,self.Items do thaw(item)end
 end
@@ -11741,7 +12062,7 @@ for _,item in next,self.Items do
 total+=1
 if item.Culled then culled+=1 end
 end
-return{Total=total,Culled=culled,Visible=total-culled}
+return{Total=total,Culled=culled,Visible=total-culled,PendingSync=self:SyncPendingCount()}
 end
 
 function C:Destroy()
@@ -13396,6 +13717,9 @@ RectCulling=av.RectCulling~=false,
 RectCullPadding=av.RectCullPadding or 200,
 RectCullInterval=av.RectCullInterval or 0.06,
 RectCullIgnore=av.RectCullIgnore,
+AutoSync=av.AutoSync~=false,
+SyncInterval=av.SyncInterval or 0.1,
+SyncBudget=av.SyncBudget or 40,
 IgnoreAlerts=av.IgnoreAlerts or false,
 HidePanelBackground=av.HidePanelBackground or false,
 AutoScale=av.AutoScale~=false,
@@ -14883,6 +15207,12 @@ aw.RectCull.Dirty=true
 end
 function aw.GetRectCullStats(C)
 return aw.RectCull:Stats()
+end
+function aw.SetAutoSync(C,F)
+aw.AutoSync=F~=false
+end
+function aw.SyncAll(C)
+aw.RectCull:SyncAll()
 end
 
 function aw.Toggle(C)
