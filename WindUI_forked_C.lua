@@ -6366,6 +6366,73 @@ Locked=af.Locked or false,
 local ah=a.load'C'(af)
 
 ag.ParagraphFrame=ah
+
+-- ScrollingFrame = true  -> the description lives in a fixed height scrolling box
+-- ScrollHeight = number  -> height of that box (default 150)
+-- AutoScroll   = true    -> sticks to the bottom when text is added (good for logs)
+if af.ScrollingFrame or af.ScrollFrame then
+local descLabel=ah.UIElements.Desc
+local descParent=descLabel.Parent
+local overlay=af.Color and Color3.new(1,1,1)or Color3.new(0,0,0)
+local scroll=ab("ScrollingFrame",{
+Name="TextLabel",
+Size=UDim2.new(1,0,0,af.ScrollHeight or 150),
+BackgroundColor3=overlay,
+BackgroundTransparency=af.Color and 0.92 or 0.85,
+BorderSizePixel=0,
+ScrollingDirection=Enum.ScrollingDirection.Y,
+AutomaticCanvasSize=Enum.AutomaticSize.Y,
+CanvasSize=UDim2.new(0,0,0,0),
+ScrollBarThickness=4,
+ScrollBarImageTransparency=0.35,
+ElasticBehavior=Enum.ElasticBehavior.Never,
+LayoutOrder=descLabel.LayoutOrder,
+Visible=descLabel.Visible,
+ThemeTag={
+ScrollBarImageColor3="Text",
+},
+Parent=descParent,
+},{
+ab("UICorner",{
+CornerRadius=UDim.new(0,6),
+}),
+ab("UIPadding",{
+PaddingTop=UDim.new(0,6),
+PaddingBottom=UDim.new(0,6),
+PaddingLeft=UDim.new(0,8),
+PaddingRight=UDim.new(0,10),
+}),
+})
+descLabel.Parent=scroll
+ag.ScrollFrame=scroll
+
+aa.AddSignal(descLabel:GetPropertyChangedSignal"Visible",function()
+scroll.Visible=descLabel.Visible
+end)
+
+local function bottomY()
+return math.max(0,scroll.AbsoluteCanvasSize.Y-scroll.AbsoluteWindowSize.Y)
+end
+
+function ag.ScrollToBottom(_)
+scroll.CanvasPosition=Vector2.new(0,bottomY())
+end
+function ag.ScrollToTop(_)
+scroll.CanvasPosition=Vector2.new(0,0)
+end
+
+if af.AutoScroll then
+local atBottom=true
+aa.AddSignal(scroll:GetPropertyChangedSignal"CanvasPosition",function()
+atBottom=scroll.CanvasPosition.Y>=bottomY()-6
+end)
+aa.AddSignal(scroll:GetPropertyChangedSignal"AbsoluteCanvasSize",function()
+if atBottom then
+scroll.CanvasPosition=Vector2.new(0,bottomY())
+end
+end)
+end
+end
 if af.Buttons and#af.Buttons>0 then
 local ai=ab("Frame",{
 Size=UDim2.new(1,0,0,38),
@@ -7882,39 +7949,125 @@ UIPadding=8,
 
 local ah=a.load'w'.New
 
-function ag.New(ai,aj)
-local function NormalizeKeyCode(ak)
-if typeof(ak)=="EnumItem"then
-return ak.Name
-elseif type(ak)=="string"then
-return ak
-else
-return"F"
+-- ===== MULTIKEY KEYBIND SUPPORT =====
+-- A keybind Value is a string of key names joined with "+" (e.g. "E" or "LeftControl+E+Q"),
+-- there is no cap on how many keys a combo can hold (unless the element sets MaxKeys).
+local KeybindRegistry=setmetatable({},{__mode="k"})
+local KeyCodeByName={}
+for _,kc in ipairs(Enum.KeyCode:GetEnumItems())do
+KeyCodeByName[kc.Name]=kc
 end
+local GlitchChars={}
+do
+local pool="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*?/\\<>[]{}=~-_;:.,|"
+for i=1,#pool do
+GlitchChars[i]=pool:sub(i,i)
+end
+end
+local KeyAlias={MouseLeftButton="MouseLeft",MouseRightButton="MouseRight"}
+local MAX_KEYBIND_WIDTH=300
+local DEFER_PREFIX=0.15
+
+local function KeyName(v)
+if typeof(v)=="EnumItem"then
+return v.Name
+elseif type(v)=="string"then
+return KeyAlias[v]or v
+end
+return nil
 end
 
+local function ParseCombo(v)
+local out,seen={},{}
+local function add(n)
+n=KeyName(n)
+if n and n~=""and not seen[n]then
+seen[n]=true
+out[#out+1]=n
+end
+end
+if type(v)=="table"then
+for _,k in ipairs(v)do add(k)end
+elseif type(v)=="string"then
+for part in string.gmatch(v,"[^+%s]+")do add(part)end
+else
+add(v)
+end
+return out
+end
+
+local function InputName(input)
+local t=input.UserInputType
+if t==Enum.UserInputType.Keyboard then
+if input.KeyCode~=Enum.KeyCode.Unknown then
+return input.KeyCode.Name
+end
+elseif t==Enum.UserInputType.MouseButton1 then
+return"MouseLeft"
+elseif t==Enum.UserInputType.MouseButton2 then
+return"MouseRight"
+end
+return nil
+end
+
+local function IsDown(name)
+if name=="MouseLeft"then
+return ac:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
+elseif name=="MouseRight"then
+return ac:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+end
+local kc=KeyCodeByName[name]
+return kc~=nil and ac:IsKeyDown(kc)
+end
+
+local function AllDown(keys)
+for _,k in ipairs(keys)do
+if not IsDown(k)then return false end
+end
+return true
+end
+
+local function IsSuperset(big,small)
+local set={}
+for _,k in ipairs(big)do set[k]=true end
+for _,k in ipairs(small)do
+if not set[k]then return false end
+end
+return true
+end
+
+local function ComboText(keys)
+return table.concat(keys," + ")
+end
+
+function ag.New(ai,aj)
 local ak={
 __type="Keybind",
 Title=aj.Title or"Keybind",
 Desc=aj.Desc or nil,
 Locked=aj.Locked or false,
 LockedTitle=aj.LockedTitle,
-Value=NormalizeKeyCode(aj.Value)or"F",
 Callback=aj.Callback or function()end,
+Changed=aj.Changed or function()end,
 CanChange=aj.CanChange~=false,
-Blacklist=aj.Blacklist or{},
+MaxKeys=aj.MaxKeys,
 Picking=false,
 UIElements={},
 }
 
-local al={}
-
-for am,an in next,ak.Blacklist do
-table.insert(al,Enum.KeyCode[NormalizeKeyCode(an)])
+ak.Keys=ParseCombo(aj.Value)
+if#ak.Keys==0 then
+ak.Keys={"F"}
 end
-table.insert(al,Enum.KeyCode[NormalizeKeyCode"Escape"])
+ak.Value=table.concat(ak.Keys,"+")
 
-local am=true
+local blocked={Escape=true}
+for _,an in next,aj.Blacklist or{}do
+local n=KeyName(an)
+if n then blocked[n]=true end
+end
+
+local enabled=true
 
 ak.KeybindFrame=a.load'C'{
 Title=ak.Title,
@@ -7931,15 +8084,21 @@ Tags=aj.Tags,
 }
 
 ak.UIElements.Keybind=ah(
-ak.Value,
+ComboText(ak.Keys),
 nil,
 ak.KeybindFrame.UIElements.Main,
 nil,
 aj.Window.NewElements and 12 or 10
 )
 
+local label=ak.UIElements.Keybind.Frame.Frame.TextLabel
+label.TextTruncate=Enum.TextTruncate.AtEnd
+
+local function Resize()
 ak.UIElements.Keybind.Size=
-UDim2.new(0,24+ak.UIElements.Keybind.Frame.Frame.TextLabel.TextBounds.X,0,42)
+UDim2.new(0,math.min(24+label.TextBounds.X,MAX_KEYBIND_WIDTH),0,42)
+end
+Resize()
 ak.UIElements.Keybind.AnchorPoint=Vector2.new(1,0.5)
 ak.UIElements.Keybind.Position=UDim2.new(1,0,0.5,0)
 ak.UIElements.Keybind.Interactable=false
@@ -7949,114 +8108,180 @@ Parent=ak.UIElements.Keybind,
 Scale=0.85,
 })
 
-ad.AddSignal(
-ak.UIElements.Keybind.Frame.Frame.TextLabel:GetPropertyChangedSignal"TextBounds",
-function()
-ak.UIElements.Keybind.Size=
-UDim2.new(0,24+ak.UIElements.Keybind.Frame.Frame.TextLabel.TextBounds.X,0,42)
+ad.AddSignal(label:GetPropertyChangedSignal"TextBounds",Resize)
+
+function ak.IsActive(an)
+return enabled and not ak.Picking and ak.KeybindFrame.UIElements.Main.Parent~=nil
 end
-)
+
+KeybindRegistry[ak]=true
 
 function ak.Lock(an)
 ak.Locked=true
-am=false
+enabled=false
 return ak.KeybindFrame:Lock(ak.LockedTitle)
 end
 function ak.Unlock(an)
 ak.Locked=false
-am=true
+enabled=true
 return ak.KeybindFrame:Unlock()
 end
 
+function ak.GetKeys(an)
+return table.clone(ak.Keys)
+end
+
+-- Set accepts "E", "LeftControl+E", an Enum.KeyCode or a table of keys. Does not fire Changed.
 function ak.Set(an,ao)
-local ap=NormalizeKeyCode(ao)
-ak.Value=ap
-ak.UIElements.Keybind.Frame.Frame.TextLabel.Text=ap
+local keys=ParseCombo(ao)
+if#keys==0 then return end
+ak.Keys=keys
+ak.Value=table.concat(keys,"+")
+if not ak.Picking then
+label.Text=ComboText(keys)
+label.TextTransparency=0
+end
 end
 
 if ak.Locked then
 ak:Lock()
 end
 
-local an
+-- longer combos (that contain this whole combo) which are also bound somewhere
+local function Supersets(keys)
+local out={}
+for el in next,KeybindRegistry do
+if el~=ak and el.IsActive and el:IsActive()and#el.Keys>#keys and IsSuperset(el.Keys,keys)then
+out[#out+1]=el
+end
+end
+return out
+end
 
+local function Suppressed(list,since)
+for _,el in ipairs(list)do
+if el:IsActive()and AllDown(el.Keys)then return true end
+if el.LastFire and since and el.LastFire>=since then return true end
+end
+return false
+end
+
+local function Fire()
+ak.LastFire=os.clock()
+ad.SafeCallback(ak.Callback,ak.Value,ak.Keys)
+end
+
+-- ===== picking (recording a combo) =====
 ad.AddSignal(ak.KeybindFrame.UIElements.Main.MouseButton1Click,function()
-if am then
-if ak.CanChange then
+if not enabled or not ak.CanChange or ak.Picking then
+return
+end
+
 ak.Picking=true
-ak.UIElements.Keybind.Frame.Frame.TextLabel.Text="..."
+local pressed={}
+local down={}
+local downCount=0
+local token={}
+ak.PickToken=token
+local conns={}
 
-
-
-local ao
-ao=ac.InputBegan:Connect(function(ap)
-local aq
-
-if ap.UserInputType==Enum.UserInputType.Keyboard then
-if table.find(al,ap.KeyCode)then
-aq=nil
-return
-else
-aq=ap.KeyCode.Name
-end
-elseif
-ap.UserInputType==Enum.UserInputType.MouseButton1
-and not table.find(al,"MouseLeftButton")
-then
-aq="MouseLeftButton"
-elseif
-ap.UserInputType==Enum.UserInputType.MouseButton2
-and not table.find(al,"MouseRightButton")
-then
-aq="MouseRightButton"
-end
-
-if an then
-an:Disconnect()
-end
-
-an=ac.InputEnded:Connect(function(ar)
-if
-aq
-and(
-ar.KeyCode.Name==aq
-or aq=="MouseLeft"and ar.UserInputType==Enum.UserInputType.MouseButton1
-or aq=="MouseRight"and ar.UserInputType==Enum.UserInputType.MouseButton2
-)
-then
+local function Finish(commit)
+if ak.PickToken~=token then return end
+ak.PickToken=nil
 ak.Picking=false
+for _,c in ipairs(conns)do c:Disconnect()end
+label.TextTransparency=0
+if commit and#pressed>0 then
+ak.Keys=table.clone(pressed)
+ak.Value=table.concat(ak.Keys,"+")
+label.Text=ComboText(ak.Keys)
+ad.SafeCallback(ak.Changed,ak.Value,ak.Keys)
+else
+label.Text=ComboText(ak.Keys)
+end
+end
 
-ak.UIElements.Keybind.Frame.Frame.TextLabel.Text=aq
-ak.Value=aq
+conns[#conns+1]=ac.InputBegan:Connect(function(input,gp)
+local name=InputName(input)
+if not name then return end
+if name=="Escape"then
+Finish(false)
+return
+end
+local isMouse=name=="MouseLeft"or name=="MouseRight"
+if isMouse and gp then return end
+if not isMouse and ac:GetFocusedTextBox()then return end
+if blocked[name]then return end
+if not down[name]then
+down[name]=true
+downCount+=1
+end
+if not table.find(pressed,name)and(not ak.MaxKeys or#pressed<ak.MaxKeys)then
+pressed[#pressed+1]=name
+end
+end)
 
-ao:Disconnect()
-an:Disconnect()
+conns[#conns+1]=ac.InputEnded:Connect(function(input)
+local name=InputName(input)
+if not name or not down[name]then return end
+down[name]=nil
+downCount-=1
+if downCount<=0 and#pressed>0 then
+Finish(true)
+end
+end)
+
+-- animation: while keys are held the text is grayed and the next slot glitches
+task.spawn(function()
+while ak.Picking and ak.PickToken==token do
+if#pressed>0 then
+label.TextTransparency=0.55
+label.Text=ComboText(pressed).." + "..GlitchChars[math.random(#GlitchChars)]
+
+-- safety: if a key release was missed (window lost focus etc) don't get stuck
+local any=false
+for k in next,down do
+if IsDown(k)then
+any=true
+else
+down[k]=nil
+downCount-=1
+end
+end
+if not any then
+Finish(true)
+break
+end
+else
+label.TextTransparency=0.35
+label.Text="..."
+end
+task.wait(0.06)
 end
 end)
 end)
-end
+
+-- ===== triggering =====
+ad.AddSignal(ac.InputBegan,function(input,gp)
+if not enabled or ak.Picking then return end
+if ac:GetFocusedTextBox()then return end
+local name=InputName(input)
+if not name or not table.find(ak.Keys,name)then return end
+if gp and(name=="MouseLeft"or name=="MouseRight")then return end
+if not AllDown(ak.Keys)then return end
+
+local longer=Supersets(ak.Keys)
+if#longer>0 then
+if Suppressed(longer,nil)then return end
+-- this combo is the start of a longer one, wait a moment to see if the user keeps adding keys
+local since=os.clock()
+task.delay(DEFER_PREFIX,function()
+if enabled and not ak.Picking and not Suppressed(longer,since)then
+Fire()
 end
 end)
-
-ad.AddSignal(ac.InputBegan,function(ao,ap)
-if ac:GetFocusedTextBox()then
-return
-end
-if not am then
-return
-end
-if ak.Picking then
-return
-end
-
-if ao.UserInputType==Enum.UserInputType.Keyboard then
-if ao.KeyCode.Name==ak.Value then
-ad.SafeCallback(ak.Callback,ao.KeyCode.Name)
-end
-elseif ao.UserInputType==Enum.UserInputType.MouseButton1 and ak.Value=="MouseLeft"then
-ad.SafeCallback(ak.Callback,"MouseLeft")
-elseif ao.UserInputType==Enum.UserInputType.MouseButton2 and ak.Value=="MouseRight"then
-ad.SafeCallback(ak.Callback,"MouseRight")
+else
+Fire()
 end
 end)
 
@@ -8082,7 +8307,7 @@ local aj={
 __type="Input",
 Title=ai.Title or"Input",
 Desc=ai.Desc or nil,
-Type=ai.Type or"Input",
+Type=ai.Type or((ai.Multiline or ai.MultiLine)and"Textarea"or"Input"),
 Locked=ai.Locked or false,
 LockedTitle=ai.LockedTitle,
 InputIcon=ai.InputIcon or false,
