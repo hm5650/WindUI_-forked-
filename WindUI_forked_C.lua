@@ -13,7 +13,7 @@
     Discord: https://discord.gg/ftgs-development-hub-1300692552005189632
     License: MIT
 ]]
--- I literally just modified a ui to be more optimized lol
+-- I literally just modified a ui to be more optimized lol and easier 4 me :p
 
 type ConfigType__DARKLUA_TYPE_a={
 Object:Instance,
@@ -6366,10 +6366,6 @@ Locked=af.Locked or false,
 local ah=a.load'C'(af)
 
 ag.ParagraphFrame=ah
-
--- ScrollingFrame = true  -> the description lives in a fixed height scrolling box
--- ScrollHeight = number  -> height of that box (default 150)
--- AutoScroll   = true    -> sticks to the bottom when text is added (good for logs)
 if af.ScrollingFrame or af.ScrollFrame then
 local descLabel=ah.UIElements.Desc
 local descParent=descLabel.Parent
@@ -7948,10 +7944,6 @@ UIPadding=8,
 }
 
 local ah=a.load'w'.New
-
--- ===== MULTIKEY KEYBIND SUPPORT =====
--- A keybind Value is a string of key names joined with "+" (e.g. "E" or "LeftControl+E+Q"),
--- there is no cap on how many keys a combo can hold (unless the element sets MaxKeys).
 local KeybindRegistry=setmetatable({},{__mode="k"})
 local KeyCodeByName={}
 for _,kc in ipairs(Enum.KeyCode:GetEnumItems())do
@@ -8092,11 +8084,20 @@ aj.Window.NewElements and 12 or 10
 )
 
 local label=ak.UIElements.Keybind.Frame.Frame.TextLabel
-label.TextTruncate=Enum.TextTruncate.AtEnd
+label.TextTruncate=Enum.TextTruncate.None
 
+local resizing=false
 local function Resize()
-ak.UIElements.Keybind.Size=
-UDim2.new(0,math.min(24+label.TextBounds.X,MAX_KEYBIND_WIDTH),0,42)
+if resizing then return end
+resizing=true
+label.TextSize=17
+local tw=label.TextBounds.X
+if tw+24>MAX_KEYBIND_WIDTH and tw>0 then
+label.TextSize=math.max(9,math.floor(17*(MAX_KEYBIND_WIDTH-24)/tw))
+tw=math.min(tw,MAX_KEYBIND_WIDTH-24)
+end
+ak.UIElements.Keybind.Size=UDim2.new(0,24+tw,0,42)
+resizing=false
 end
 Resize()
 ak.UIElements.Keybind.AnchorPoint=Vector2.new(1,0.5)
@@ -8130,8 +8131,6 @@ end
 function ak.GetKeys(an)
 return table.clone(ak.Keys)
 end
-
--- Set accepts "E", "LeftControl+E", an Enum.KeyCode or a table of keys. Does not fire Changed.
 function ak.Set(an,ao)
 local keys=ParseCombo(ao)
 if#keys==0 then return end
@@ -8146,8 +8145,6 @@ end
 if ak.Locked then
 ak:Lock()
 end
-
--- longer combos (that contain this whole combo) which are also bound somewhere
 local function Supersets(keys)
 local out={}
 for el in next,KeybindRegistry do
@@ -8170,8 +8167,6 @@ local function Fire()
 ak.LastFire=os.clock()
 ad.SafeCallback(ak.Callback,ak.Value,ak.Keys)
 end
-
--- ===== picking (recording a combo) =====
 ad.AddSignal(ak.KeybindFrame.UIElements.Main.MouseButton1Click,function()
 if not enabled or not ak.CanChange or ak.Picking then
 return
@@ -8230,15 +8225,11 @@ if downCount<=0 and#pressed>0 then
 Finish(true)
 end
 end)
-
--- animation: while keys are held the text is grayed and the next slot glitches
 task.spawn(function()
 while ak.Picking and ak.PickToken==token do
 if#pressed>0 then
 label.TextTransparency=0.55
 label.Text=ComboText(pressed).." + "..GlitchChars[math.random(#GlitchChars)]
-
--- safety: if a key release was missed (window lost focus etc) don't get stuck
 local any=false
 for k in next,down do
 if IsDown(k)then
@@ -8260,8 +8251,6 @@ task.wait(0.06)
 end
 end)
 end)
-
--- ===== triggering =====
 ad.AddSignal(ac.InputBegan,function(input,gp)
 if not enabled or ak.Picking then return end
 if ac:GetFocusedTextBox()then return end
@@ -8273,7 +8262,6 @@ if not AllDown(ak.Keys)then return end
 local longer=Supersets(ak.Keys)
 if#longer>0 then
 if Suppressed(longer,nil)then return end
--- this combo is the start of a longer one, wait a moment to see if the user keeps adding keys
 local since=os.clock()
 task.delay(DEFER_PREFIX,function()
 if enabled and not ak.Picking and not Suppressed(longer,since)then
