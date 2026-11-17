@@ -13,7 +13,7 @@
     Discord: https://discord.gg/ftgs-development-hub-1300692552005189632
     License: MIT
 ]]
--- I literally just modified a ui to be more optimized lol
+-- I literally just modified a ui to be more optimized lol and easier 4 me :p
 
 type ConfigType__DARKLUA_TYPE_a={
 Object:Instance,
@@ -200,7 +200,7 @@ end
 m:SetRadius(f)
 m:SetType(g)
 
-b.AddSignal(r:GetPropertyChangedSignal"AbsoluteSize",function()
+local function RefreshShape()
 local u=GetShape(m.Type)
 if u.AutoChange==false then
 return
@@ -243,6 +243,14 @@ if G~=m:GetType()then
 m:SetType(G)
 end
 end
+end
+
+b.AddSignal(r:GetPropertyChangedSignal"AbsoluteSize",function()
+if b.Interacting then
+b.DeferredRound[RefreshShape]=true
+return
+end
+RefreshShape()
 end)
 
 return r,m
@@ -1149,6 +1157,32 @@ function r.Tween(u,v,x,...)
 return f:Create(u,TweenInfo.new(v,...),x)
 end
 
+r.Interacting=false
+r.DeferredRound={}
+function r.SetInteracting(u)
+if u then
+r.Interacting=true
+return
+end
+r.Interacting=false
+local v=r.DeferredRound
+r.DeferredRound={}
+local x={}
+for z in next,v do x[#x+1]=z end
+if #x==0 then return end
+task.spawn(function()
+local z=game:GetService"RunService"
+for A=1,#x do
+if r.Interacting then
+for B=A,#x do r.DeferredRound[x[B]]=true end
+return
+end
+pcall(x[A])
+if A%80==0 then z.Heartbeat:Wait() end
+end
+end)
+end
+
 
 
 
@@ -1238,6 +1272,9 @@ local C
 local F=false
 local G,H
 local J
+local PendingPos
+local StepConn
+local RS=game:GetService"RunService"
 
 local L={
 CanDraggable=true,
@@ -1247,20 +1284,25 @@ if not z or typeof(z)~="table"then
 z={x}
 end
 
+local function flush()
+if PendingPos then
+x.Position=PendingPos
+PendingPos=nil
+end
+end
+
 local function update(M)
 if not F or not L.CanDraggable then
 return
 end
 
 local N=M.Position-G
-r.Tween(x,0.02,{
-Position=UDim2.new(
+PendingPos=UDim2.new(
 H.X.Scale,
 H.X.Offset+N.X,
 H.Y.Scale,
 H.Y.Offset+N.Y
-),
-}):Play()
+)
 end
 
 for M,N in pairs(z)do
@@ -1284,6 +1326,9 @@ J=O
 C=N
 G=O.Position
 H=x.Position
+PendingPos=nil
+if StepConn then StepConn:Disconnect()end
+StepConn=RS.RenderStepped:Connect(flush)
 
 if A and typeof(A)=="function"then
 A(true,C)
@@ -1323,6 +1368,8 @@ J.UserInputType==Enum.UserInputType.MouseButton1
 and M.UserInputType==Enum.UserInputType.MouseButton1
 )
 then
+flush()
+if StepConn then StepConn:Disconnect()StepConn=nil end
 p.CurrentInput=nil
 F=false
 J=nil
@@ -6366,6 +6413,69 @@ Locked=af.Locked or false,
 local ah=a.load'C'(af)
 
 ag.ParagraphFrame=ah
+if af.ScrollingFrame or af.ScrollFrame then
+local descLabel=ah.UIElements.Desc
+local descParent=descLabel.Parent
+local overlay=af.Color and Color3.new(1,1,1)or Color3.new(0,0,0)
+local scroll=ab("ScrollingFrame",{
+Name="TextLabel",
+Size=UDim2.new(1,0,0,af.ScrollHeight or 150),
+BackgroundColor3=overlay,
+BackgroundTransparency=af.Color and 0.92 or 0.85,
+BorderSizePixel=0,
+ScrollingDirection=Enum.ScrollingDirection.Y,
+AutomaticCanvasSize=Enum.AutomaticSize.Y,
+CanvasSize=UDim2.new(0,0,0,0),
+ScrollBarThickness=4,
+ScrollBarImageTransparency=0.35,
+ElasticBehavior=Enum.ElasticBehavior.Never,
+LayoutOrder=descLabel.LayoutOrder,
+Visible=descLabel.Visible,
+ThemeTag={
+ScrollBarImageColor3="Text",
+},
+Parent=descParent,
+},{
+ab("UICorner",{
+CornerRadius=UDim.new(0,6),
+}),
+ab("UIPadding",{
+PaddingTop=UDim.new(0,6),
+PaddingBottom=UDim.new(0,6),
+PaddingLeft=UDim.new(0,8),
+PaddingRight=UDim.new(0,10),
+}),
+})
+descLabel.Parent=scroll
+ag.ScrollFrame=scroll
+
+aa.AddSignal(descLabel:GetPropertyChangedSignal"Visible",function()
+scroll.Visible=descLabel.Visible
+end)
+
+local function bottomY()
+return math.max(0,scroll.AbsoluteCanvasSize.Y-scroll.AbsoluteWindowSize.Y)
+end
+
+function ag.ScrollToBottom(_)
+scroll.CanvasPosition=Vector2.new(0,bottomY())
+end
+function ag.ScrollToTop(_)
+scroll.CanvasPosition=Vector2.new(0,0)
+end
+
+if af.AutoScroll then
+local atBottom=true
+aa.AddSignal(scroll:GetPropertyChangedSignal"CanvasPosition",function()
+atBottom=scroll.CanvasPosition.Y>=bottomY()-6
+end)
+aa.AddSignal(scroll:GetPropertyChangedSignal"AbsoluteCanvasSize",function()
+if atBottom then
+scroll.CanvasPosition=Vector2.new(0,bottomY())
+end
+end)
+end
+end
 if af.Buttons and#af.Buttons>0 then
 local ai=ab("Frame",{
 Size=UDim2.new(1,0,0,38),
@@ -7881,40 +7991,122 @@ UIPadding=8,
 }
 
 local ah=a.load'w'.New
+local KeybindRegistry=setmetatable({},{__mode="k"})
+local KeyCodeByName={}
+for _,kc in ipairs(Enum.KeyCode:GetEnumItems())do
+KeyCodeByName[kc.Name]=kc
+end
+local GlitchChars={}
+do
+local pool="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*?/\\<>[]{}=~-_;:.,|"
+for i=1,#pool do
+GlitchChars[i]=pool:sub(i,i)
+end
+end
+local KeyAlias={MouseLeftButton="MouseLeft",MouseRightButton="MouseRight"}
+local MAX_KEYBIND_WIDTH=300
+local DEFER_PREFIX=0.15
+
+local function KeyName(v)
+if typeof(v)=="EnumItem"then
+return v.Name
+elseif type(v)=="string"then
+return KeyAlias[v]or v
+end
+return nil
+end
+
+local function ParseCombo(v)
+local out,seen={},{}
+local function add(n)
+n=KeyName(n)
+if n and n~=""and not seen[n]then
+seen[n]=true
+out[#out+1]=n
+end
+end
+if type(v)=="table"then
+for _,k in ipairs(v)do add(k)end
+elseif type(v)=="string"then
+for part in string.gmatch(v,"[^+%s]+")do add(part)end
+else
+add(v)
+end
+return out
+end
+
+local function InputName(input)
+local t=input.UserInputType
+if t==Enum.UserInputType.Keyboard then
+if input.KeyCode~=Enum.KeyCode.Unknown then
+return input.KeyCode.Name
+end
+elseif t==Enum.UserInputType.MouseButton1 then
+return"MouseLeft"
+elseif t==Enum.UserInputType.MouseButton2 then
+return"MouseRight"
+end
+return nil
+end
+
+local function IsDown(name)
+if name=="MouseLeft"then
+return ac:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
+elseif name=="MouseRight"then
+return ac:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+end
+local kc=KeyCodeByName[name]
+return kc~=nil and ac:IsKeyDown(kc)
+end
+
+local function AllDown(keys)
+for _,k in ipairs(keys)do
+if not IsDown(k)then return false end
+end
+return true
+end
+
+local function IsSuperset(big,small)
+local set={}
+for _,k in ipairs(big)do set[k]=true end
+for _,k in ipairs(small)do
+if not set[k]then return false end
+end
+return true
+end
+
+local function ComboText(keys)
+return table.concat(keys," + ")
+end
 
 function ag.New(ai,aj)
-local function NormalizeKeyCode(ak)
-if typeof(ak)=="EnumItem"then
-return ak.Name
-elseif type(ak)=="string"then
-return ak
-else
-return"F"
-end
-end
-
 local ak={
 __type="Keybind",
 Title=aj.Title or"Keybind",
 Desc=aj.Desc or nil,
 Locked=aj.Locked or false,
 LockedTitle=aj.LockedTitle,
-Value=NormalizeKeyCode(aj.Value)or"F",
 Callback=aj.Callback or function()end,
+Changed=aj.Changed or function()end,
 CanChange=aj.CanChange~=false,
-Blacklist=aj.Blacklist or{},
+MaxKeys=aj.MaxKeys,
 Picking=false,
 UIElements={},
 }
 
-local al={}
-
-for am,an in next,ak.Blacklist do
-table.insert(al,Enum.KeyCode[NormalizeKeyCode(an)])
+ak.Keys=ParseCombo(aj.Value)
+if#ak.Keys==0 then
+ak.Keys={"F"}
 end
-table.insert(al,Enum.KeyCode[NormalizeKeyCode"Escape"])
+ak.Value=table.concat(ak.Keys,"+")
 
-local am=true
+local blocked={Escape=true}
+for _,an in next,aj.Blacklist or{}do
+local n=KeyName(an)
+if n then blocked[n]=true end
+end
+
+local enabled=true
 
 ak.KeybindFrame=a.load'C'{
 Title=ak.Title,
@@ -7931,15 +8123,30 @@ Tags=aj.Tags,
 }
 
 ak.UIElements.Keybind=ah(
-ak.Value,
+ComboText(ak.Keys),
 nil,
 ak.KeybindFrame.UIElements.Main,
 nil,
 aj.Window.NewElements and 12 or 10
 )
 
-ak.UIElements.Keybind.Size=
-UDim2.new(0,24+ak.UIElements.Keybind.Frame.Frame.TextLabel.TextBounds.X,0,42)
+local label=ak.UIElements.Keybind.Frame.Frame.TextLabel
+label.TextTruncate=Enum.TextTruncate.None
+
+local resizing=false
+local function Resize()
+if resizing then return end
+resizing=true
+label.TextSize=17
+local tw=label.TextBounds.X
+if tw+24>MAX_KEYBIND_WIDTH and tw>0 then
+label.TextSize=math.max(9,math.floor(17*(MAX_KEYBIND_WIDTH-24)/tw))
+tw=math.min(tw,MAX_KEYBIND_WIDTH-24)
+end
+ak.UIElements.Keybind.Size=UDim2.new(0,24+tw,0,42)
+resizing=false
+end
+Resize()
 ak.UIElements.Keybind.AnchorPoint=Vector2.new(1,0.5)
 ak.UIElements.Keybind.Position=UDim2.new(1,0,0.5,0)
 ak.UIElements.Keybind.Interactable=false
@@ -7949,114 +8156,167 @@ Parent=ak.UIElements.Keybind,
 Scale=0.85,
 })
 
-ad.AddSignal(
-ak.UIElements.Keybind.Frame.Frame.TextLabel:GetPropertyChangedSignal"TextBounds",
-function()
-ak.UIElements.Keybind.Size=
-UDim2.new(0,24+ak.UIElements.Keybind.Frame.Frame.TextLabel.TextBounds.X,0,42)
+ad.AddSignal(label:GetPropertyChangedSignal"TextBounds",Resize)
+
+function ak.IsActive(an)
+return enabled and not ak.Picking and ak.KeybindFrame.UIElements.Main.Parent~=nil
 end
-)
+
+KeybindRegistry[ak]=true
 
 function ak.Lock(an)
 ak.Locked=true
-am=false
+enabled=false
 return ak.KeybindFrame:Lock(ak.LockedTitle)
 end
 function ak.Unlock(an)
 ak.Locked=false
-am=true
+enabled=true
 return ak.KeybindFrame:Unlock()
 end
 
+function ak.GetKeys(an)
+return table.clone(ak.Keys)
+end
 function ak.Set(an,ao)
-local ap=NormalizeKeyCode(ao)
-ak.Value=ap
-ak.UIElements.Keybind.Frame.Frame.TextLabel.Text=ap
+local keys=ParseCombo(ao)
+if#keys==0 then return end
+ak.Keys=keys
+ak.Value=table.concat(keys,"+")
+if not ak.Picking then
+label.Text=ComboText(keys)
+label.TextTransparency=0
+end
 end
 
 if ak.Locked then
 ak:Lock()
 end
+local function Supersets(keys)
+local out={}
+for el in next,KeybindRegistry do
+if el~=ak and el.IsActive and el:IsActive()and#el.Keys>#keys and IsSuperset(el.Keys,keys)then
+out[#out+1]=el
+end
+end
+return out
+end
 
-local an
+local function Suppressed(list,since)
+for _,el in ipairs(list)do
+if el:IsActive()and AllDown(el.Keys)then return true end
+if el.LastFire and since and el.LastFire>=since then return true end
+end
+return false
+end
 
+local function Fire()
+ak.LastFire=os.clock()
+ad.SafeCallback(ak.Callback,ak.Value,ak.Keys)
+end
 ad.AddSignal(ak.KeybindFrame.UIElements.Main.MouseButton1Click,function()
-if am then
-if ak.CanChange then
+if not enabled or not ak.CanChange or ak.Picking then
+return
+end
+
 ak.Picking=true
-ak.UIElements.Keybind.Frame.Frame.TextLabel.Text="..."
+local pressed={}
+local down={}
+local downCount=0
+local token={}
+ak.PickToken=token
+local conns={}
 
-
-
-local ao
-ao=ac.InputBegan:Connect(function(ap)
-local aq
-
-if ap.UserInputType==Enum.UserInputType.Keyboard then
-if table.find(al,ap.KeyCode)then
-aq=nil
-return
-else
-aq=ap.KeyCode.Name
-end
-elseif
-ap.UserInputType==Enum.UserInputType.MouseButton1
-and not table.find(al,"MouseLeftButton")
-then
-aq="MouseLeftButton"
-elseif
-ap.UserInputType==Enum.UserInputType.MouseButton2
-and not table.find(al,"MouseRightButton")
-then
-aq="MouseRightButton"
-end
-
-if an then
-an:Disconnect()
-end
-
-an=ac.InputEnded:Connect(function(ar)
-if
-aq
-and(
-ar.KeyCode.Name==aq
-or aq=="MouseLeft"and ar.UserInputType==Enum.UserInputType.MouseButton1
-or aq=="MouseRight"and ar.UserInputType==Enum.UserInputType.MouseButton2
-)
-then
+local function Finish(commit)
+if ak.PickToken~=token then return end
+ak.PickToken=nil
 ak.Picking=false
+for _,c in ipairs(conns)do c:Disconnect()end
+label.TextTransparency=0
+if commit and#pressed>0 then
+ak.Keys=table.clone(pressed)
+ak.Value=table.concat(ak.Keys,"+")
+label.Text=ComboText(ak.Keys)
+ad.SafeCallback(ak.Changed,ak.Value,ak.Keys)
+else
+label.Text=ComboText(ak.Keys)
+end
+end
 
-ak.UIElements.Keybind.Frame.Frame.TextLabel.Text=aq
-ak.Value=aq
+conns[#conns+1]=ac.InputBegan:Connect(function(input,gp)
+local name=InputName(input)
+if not name then return end
+if name=="Escape"then
+Finish(false)
+return
+end
+local isMouse=name=="MouseLeft"or name=="MouseRight"
+if isMouse and gp then return end
+if not isMouse and ac:GetFocusedTextBox()then return end
+if blocked[name]then return end
+if not down[name]then
+down[name]=true
+downCount+=1
+end
+if not table.find(pressed,name)and(not ak.MaxKeys or#pressed<ak.MaxKeys)then
+pressed[#pressed+1]=name
+end
+end)
 
-ao:Disconnect()
-an:Disconnect()
+conns[#conns+1]=ac.InputEnded:Connect(function(input)
+local name=InputName(input)
+if not name or not down[name]then return end
+down[name]=nil
+downCount-=1
+if downCount<=0 and#pressed>0 then
+Finish(true)
+end
+end)
+task.spawn(function()
+while ak.Picking and ak.PickToken==token do
+if#pressed>0 then
+label.TextTransparency=0.55
+label.Text=ComboText(pressed).." + "..GlitchChars[math.random(#GlitchChars)]
+local any=false
+for k in next,down do
+if IsDown(k)then
+any=true
+else
+down[k]=nil
+downCount-=1
+end
+end
+if not any then
+Finish(true)
+break
+end
+else
+label.TextTransparency=0.35
+label.Text="..."
+end
+task.wait(0.06)
 end
 end)
 end)
-end
+ad.AddSignal(ac.InputBegan,function(input,gp)
+if not enabled or ak.Picking then return end
+if ac:GetFocusedTextBox()then return end
+local name=InputName(input)
+if not name or not table.find(ak.Keys,name)then return end
+if gp and(name=="MouseLeft"or name=="MouseRight")then return end
+if not AllDown(ak.Keys)then return end
+
+local longer=Supersets(ak.Keys)
+if#longer>0 then
+if Suppressed(longer,nil)then return end
+local since=os.clock()
+task.delay(DEFER_PREFIX,function()
+if enabled and not ak.Picking and not Suppressed(longer,since)then
+Fire()
 end
 end)
-
-ad.AddSignal(ac.InputBegan,function(ao,ap)
-if ac:GetFocusedTextBox()then
-return
-end
-if not am then
-return
-end
-if ak.Picking then
-return
-end
-
-if ao.UserInputType==Enum.UserInputType.Keyboard then
-if ao.KeyCode.Name==ak.Value then
-ad.SafeCallback(ak.Callback,ao.KeyCode.Name)
-end
-elseif ao.UserInputType==Enum.UserInputType.MouseButton1 and ak.Value=="MouseLeft"then
-ad.SafeCallback(ak.Callback,"MouseLeft")
-elseif ao.UserInputType==Enum.UserInputType.MouseButton2 and ak.Value=="MouseRight"then
-ad.SafeCallback(ak.Callback,"MouseRight")
+else
+Fire()
 end
 end)
 
@@ -8082,7 +8342,7 @@ local aj={
 __type="Input",
 Title=ai.Title or"Input",
 Desc=ai.Desc or nil,
-Type=ai.Type or"Input",
+Type=ai.Type or((ai.Multiline or ai.MultiLine)and"Textarea"or"Input"),
 Locked=ai.Locked or false,
 LockedTitle=ai.LockedTitle,
 InputIcon=ai.InputIcon or false,
@@ -8319,6 +8579,7 @@ end
 end
 
 function UpdatePosition()
+if not ap.Opened then return end
 local at=ap.UIElements.Dropdown or ap.DropdownFrame.UIElements.Main
 local au=ap.UIElements.MenuCanvas
 
@@ -11488,6 +11749,123 @@ Keybind=true,Input=true,Dropdown=true,Code=true,Colorpicker=true,Image=true,
 }
 local WRAP={"Lock","Unlock","Highlight","SetImage","SetThumbnail"}
 local HOLD=0.4
+local function snap(v)
+if type(v)=="table"then
+local t={}
+for k,x in next,v do t[k]=x end
+return t
+end
+return v
+end
+
+local function same(a,b)
+if a==b then return true end
+if type(a)=="table"and type(b)=="table"then
+for k,v in next,a do if b[k]~=v then return false end end
+for k in next,b do if a[k]==nil then return false end end
+return true
+end
+return false
+end
+
+local function safeGet(fn,el)
+local ok,v=pcall(fn,el)
+if ok then return true,v end
+return false,nil
+end
+
+local KIND={
+Toggle={
+get=function(el)return el.Value==true end,
+norm=function(el,v)return v==true end,
+write=function(el,v)el.Value=v end,
+apply=function(el,v,instant)el:Set(v,false,instant)end,
+},
+Slider={
+get=function(el)
+local d=el.Value and el.Value.Default
+return tonumber(d)or d
+end,
+norm=function(el,v)return tonumber(v)end,
+write=function(el,v)if type(el.Value)=="table"then el.Value.Default=v end end,
+apply=function(el,v)el:Set(v)end,
+matches=function(el,v)
+local tb=el.UIElements.SliderContainer.TextBox
+return tonumber(tb.Text)==tonumber(v)
+end,
+silent=true,
+},
+ProgressBar={
+get=function(el)
+local d=el.Value and el.Value.Default
+return tonumber(d)or d
+end,
+norm=function(el,v)return tonumber(v)end,
+write=function(el,v)if type(el.Value)=="table"then el.Value.Default=v end end,
+apply=function(el,v)el:Set(v)end,
+nocb=true,
+},
+Input={
+get=function(el)return el.Value end,
+norm=function(el,v)return v==nil and""or tostring(v)end,
+write=function(el,v)el.Value=v end,
+apply=function(el,v)el:Set(v)end,
+silent=true,
+},
+Keybind={
+get=function(el)return el.Value end,
+write=function(el,v)el.Value=v end,
+apply=function(el,v)el:Set(v)end,
+},
+Dropdown={
+get=function(el)return el.Value end,
+write=function(el,v)el.Value=v end,
+apply=function(el,v)el:Select(v)end,
+silent=true,
+},
+Colorpicker={
+get=function(el)return{el.Default,el.Transparency or 0}end,
+norm=function(el,v)
+if typeof(v)=="Color3"then return{v,el.Transparency or 0}end
+if type(v)=="table"then return{v[1],v[2]or el.Transparency or 0}end
+return nil
+end,
+write=function(el,v)
+el.Default=v[1]
+el.Transparency=v[2]
+end,
+apply=function(el,v)el:Update(v[1],v[2])end,
+matches=function(el,v)
+return el.UIElements.Colorpicker.ImageColor3==v[1]
+end,
+silent=true,
+},
+}
+
+local function bindFrom(item,src,key,xf)
+if src==nil then item.Bind=nil return end
+local b={Last=nil,Seen=false}
+if type(src)=="function"then
+b.Get=src
+elseif type(src)=="table"then
+if key==nil and src.Table~=nil then
+b.Get=function()return src.Table[src.Key]end
+xf=xf or src.Transform
+elseif key==nil and src[1]~=nil and src[2]~=nil then
+local t,k=src[1],src[2]
+b.Get=function()return t[k]end
+xf=xf or src[3]
+else
+b.Get=function()return src[key]end
+end
+else
+item.Bind=nil
+return
+end
+b.Xf=xf
+item.Bind=b
+end
+
 
 local C={}
 C.__index=C
@@ -11539,6 +11917,9 @@ f.AutomaticSize=Enum.AutomaticSize.Y
 f.Size=item.OrigSize
 end
 item.Hold=os.clock()+HOLD
+if item.Pending and item.Owner and item.Owner.Items[item.El]then
+item.Owner:_flush(item,true)
+end
 end
 
 function C.new(win)
@@ -11550,9 +11931,14 @@ Groups={},
 Enabled=win.RectCulling~=false,
 Dirty=true,
 Acc=0,
+SyncAcc=0,
+SyncList={},
+ListDirty=true,
+Cursor=0,
 },C)
 self.Conn=RunService.Heartbeat:Connect(function(dt)
 self:Step(dt)
+self:SyncStep(dt)
 end)
 return self
 end
@@ -11569,9 +11955,69 @@ WindUI=cfg and cfg.WindUI,
 Hidden={},
 Culled=false,
 Hold=0,
+Owner=self,
+Pending=false,
+Applying=false,
 }
 self.Items[el]=item
 self.Pending[#self.Pending+1]=item
+self.ListDirty=true
+
+local kind=KIND[el.__type]
+if kind then
+local okv,v0=safeGet(kind.get,el)
+item.Shown=okv and snap(v0)or nil
+
+for _,setter in ipairs{"Set","Select"}do
+local origSet=rawget(el,setter)
+if type(origSet)=="function"then
+el[setter]=function(...)
+local a,b,c=origSet(...)
+if not item.Applying then
+local ok2,v=safeGet(kind.get,el)
+if ok2 then
+item.Shown=snap(v)
+item.Pending=false
+end
+end
+return a,b,c
+end
+end
+end
+
+if not kind.nocb and el.__type~="Toggle"then
+local origCb=rawget(el,"Callback")
+if type(origCb)=="function"then
+el.Callback=function(...)
+if not item.Applying then
+local ok2,v=safeGet(kind.get,el)
+if ok2 then
+item.Shown=snap(v)
+item.Pending=false
+end
+end
+return origCb(...)
+end
+end
+end
+
+function el.Bind(_,src,key,xf)
+bindFrom(item,src,key,xf)
+return el
+end
+function el.Unbind()
+item.Bind=nil
+return el
+end
+function el.Sync()
+self:_syncItem(item,false,true)
+return el
+end
+
+if cfg and cfg.Bind~=nil then
+bindFrom(item,cfg.Bind)
+end
+end
 
 for _,name in ipairs(WRAP)do
 local orig=rawget(el,name)
@@ -11589,6 +12035,7 @@ function C:Unregister(el)
 local item=self.Items[el]
 if not item then return end
 self.Items[el]=nil
+self.ListDirty=true
 if item.Group then item.Group.Items[item]=nil end
 for i,p in ipairs(self.Pending)do
 if p==item then table.remove(self.Pending,i)break end
@@ -11684,6 +12131,7 @@ function C:Step(dt)
 if not self.Enabled then return end
 local win=self.Window
 if win.Destroyed then return end
+if win.Interacting then self.Acc=0 return end
 
 self.Acc+=dt
 if self.Acc<(tonumber(win.RectCullInterval)or 0.06)then return end
@@ -11720,6 +12168,141 @@ end
 end
 end
 
+local function isHiddenNow(item,closed)
+if item.Culled or closed then return true end
+local g=item.Group
+if g then
+local canvas=g.Scroll.Parent
+if canvas and canvas:IsA"GuiObject"and not canvas.Visible then return true end
+end
+return false
+end
+
+function C:_flush(item,instant)
+local el=item.El
+local kind=KIND[el.__type]
+if not kind then item.Pending=false return end
+local ok,cur=safeGet(kind.get,el)
+if not ok then return end
+item.Pending=false
+item.Shown=snap(cur)
+if cur==nil and el.__type~="Dropdown"then return end
+
+local cb
+if kind.silent then
+cb=rawget(el,"Callback")
+el.Callback=function()end
+end
+item.Applying=true
+local okA,err=pcall(kind.apply,el,cur,instant==true)
+item.Applying=false
+if kind.silent then el.Callback=cb end
+if not okA and self.Window.Debug then
+warn("[ WindUI.AutoSync ] apply failed for "..tostring(el.__type)..": "..tostring(err))
+end
+end
+
+function C:_syncItem(item,closed,force)
+local el=item.El
+local kind=KIND[el.__type]
+if not kind then return end
+
+local b=item.Bind
+if b then
+local okb,bv=pcall(b.Get)
+if okb and(not b.Seen or not same(bv,b.Last))then
+b.Seen=true
+b.Last=snap(bv)
+if bv~=nil then
+if b.Xf then
+local okx,xv=pcall(b.Xf,bv)
+if okx then bv=xv end
+end
+if kind.norm then bv=kind.norm(el,bv)end
+local okc,cur=safeGet(kind.get,el)
+if bv~=nil and okc and not same(cur,bv)then
+kind.write(el,bv)
+end
+end
+end
+end
+
+local ok,cur=safeGet(kind.get,el)
+if not ok then return end
+if same(cur,item.Shown)then
+if item.Pending then item.Pending=false end
+return
+end
+
+if kind.matches then
+local okm,m=pcall(kind.matches,el,cur)
+if okm and m then
+item.Shown=snap(cur)
+item.Pending=false
+return
+end
+end
+
+if not force and isHiddenNow(item,closed)then
+item.Pending=true
+return
+end
+self:_flush(item,force==true)
+end
+
+function C:SyncStep(dt)
+local win=self.Window
+if win.AutoSync==false or win.Destroyed then return end
+self.SyncAcc+=dt
+if self.SyncAcc<(tonumber(win.SyncInterval)or 0.1)then return end
+self.SyncAcc=0
+
+if self.ListDirty then
+local list=self.SyncList
+table.clear(list)
+for el,item in next,self.Items do
+if KIND[el.__type]then list[#list+1]=item end
+end
+self.ListDirty=false
+end
+
+local list=self.SyncList
+local n=#list
+if n==0 then return end
+local count=math.min(math.max(1,tonumber(win.SyncBudget)or 40),n)
+local closed=win.Closed==true
+
+for _=1,count do
+local cur=self.Cursor+1
+if cur>n then cur=1 end
+self.Cursor=cur
+local item=list[cur]
+if item then
+if not item.Frame.Parent then
+self.Items[item.El]=nil
+self.ListDirty=true
+else
+local ok,err=pcall(self._syncItem,self,item,closed,false)
+if not ok and win.Debug then warn("[ WindUI.AutoSync ] "..tostring(err))end
+end
+end
+end
+end
+
+function C:SyncAll()
+for _,item in next,self.Items do
+pcall(self._syncItem,self,item,false,true)
+end
+end
+
+function C:SyncPendingCount()
+local n=0
+for _,item in next,self.Items do
+if item.Pending then n+=1 end
+end
+return n
+end
+
 function C:RestoreAll()
 for _,item in next,self.Items do thaw(item)end
 end
@@ -11741,7 +12324,7 @@ for _,item in next,self.Items do
 total+=1
 if item.Culled then culled+=1 end
 end
-return{Total=total,Culled=culled,Visible=total-culled}
+return{Total=total,Culled=culled,Visible=total-culled,PendingSync=self:SyncPendingCount()}
 end
 
 function C:Destroy()
@@ -13396,6 +13979,9 @@ RectCulling=av.RectCulling~=false,
 RectCullPadding=av.RectCullPadding or 200,
 RectCullInterval=av.RectCullInterval or 0.06,
 RectCullIgnore=av.RectCullIgnore,
+AutoSync=av.AutoSync~=false,
+SyncInterval=av.SyncInterval or 0.1,
+SyncBudget=av.SyncBudget or 40,
 IgnoreAlerts=av.IgnoreAlerts or false,
 HidePanelBackground=av.HidePanelBackground or false,
 AutoScale=av.AutoScale~=false,
@@ -14884,6 +15470,12 @@ end
 function aw.GetRectCullStats(C)
 return aw.RectCull:Stats()
 end
+function aw.SetAutoSync(C,F)
+aw.AutoSync=F~=false
+end
+function aw.SyncAll(C)
+aw.RectCull:SyncAll()
+end
 
 function aw.Toggle(C)
 if aw.Closed then
@@ -15352,13 +15944,49 @@ end
 
 local L=av.WindUI.GenerateGUID()
 
+local PendingSize
+local LastResizeApply=0
+local ResizeConn
+
+local function applyResize(force)
+if not PendingSize then return end
+local Q=os.clock()
+if not force and Q-LastResizeApply<(tonumber(aw.ResizeInterval)or 0.025)then
+return
+end
+LastResizeApply=Q
+aw.UIElements.Main.Size=PendingSize
+PendingSize=nil
+end
+
+local function endResize()
+if ResizeConn then ResizeConn:Disconnect()ResizeConn=nil end
+applyResize(true)
+if aw.Interacting then
+aw.Interacting=false
+an.SetInteracting(false)
+end
+end
+
 local function startResizing(M)
 if aw.CanResize then
 isResizing=true
 aA.Active=true
 initialSize=aw.UIElements.Main.Size
 initialInputPosition=M.Position
+PendingSize=nil
+LastResizeApply=0
 
+aw.Interacting=true
+an.SetInteracting(true)
+if ResizeConn then ResizeConn:Disconnect()end
+ResizeConn=game:GetService"RunService".RenderStepped:Connect(function()
+if not isResizing then
+endResize()
+return
+end
+applyResize(false)
+end)
 
 ap(az.ImageLabel,0.1,{ImageTransparency=0.35}):Play()
 
@@ -15372,7 +16000,7 @@ av.WindUI.CurrentInput=nil
 
 isResizing=false
 aA.Active=false
-
+endResize()
 
 ap(az.ImageLabel,0.17,{ImageTransparency=0.8}):Play()
 end
@@ -15412,10 +16040,7 @@ O.Y.Scale,
 math.clamp(O.Y.Offset,aw.MinSize.Y,aw.MaxSize.Y)
 )
 
-ap(aw.UIElements.Main,0.08,{
-Size=O,
-},Enum.EasingStyle.Quad,Enum.EasingDirection.Out):Play()
-
+PendingSize=O
 aw.Size=O
 end
 end
@@ -15481,7 +16106,95 @@ O=R
 end
 end)
 
+do
+local TapCount=0
+local LastTapTime=0
+local FirstTapPos
+local Pending
+local Needed=4
+local MaxGap=0.4
+local MaxMove=18
 
+local function isBackgroundTap(Q)
+local R=aw.UIElements.Main
+if not R or not R.Parent or not R.Visible then return false end
+if aw.Closed or aw.Dragging or isResizing then return false end
+local S=R.AbsoluteSize
+local T=R.AbsolutePosition
+if Q.X<T.X or Q.X>T.X+S.X or Q.Y<T.Y or Q.Y>T.Y+S.Y then return false end
+local U=af:GetGuiObjectsAtPosition(Q.X,Q.Y)
+local V=false
+for W=1,#U do
+local X=U[W]
+if X==R or X:IsDescendantOf(R)then
+V=true
+local Y=X.AbsoluteSize
+if X~=R and Y.X>=S.X*0.9 and Y.Y>=S.Y*0.9 then
+return true
+end
+if X:IsA"GuiButton"or X:IsA"TextBox"then
+return false
+end
+if X.Active and not X:IsA"ScrollingFrame"and X~=R then
+local Z=X.AbsoluteSize
+if not(Z.X>=S.X*0.9 and Z.Y>=S.Y*0.9)then
+return false
+end
+end
+elseif not V then
+if X:IsA"GuiButton"or X:IsA"TextBox"or(X:IsA"GuiObject"and X.Active)then
+return false
+end
+end
+end
+return V
+end
+
+an.AddSignal(af.InputBegan,function(Q)
+if Q.UserInputType~=Enum.UserInputType.MouseButton1
+and Q.UserInputType~=Enum.UserInputType.Touch then
+return
+end
+if isBackgroundTap(Q.Position)then
+Pending={Input=Q,Pos=Q.Position,Time=os.clock(),Moved=false}
+else
+Pending=nil
+TapCount=0
+end
+end)
+
+an.AddSignal(af.InputChanged,function(Q)
+if Pending and(Q==Pending.Input or Q.UserInputType==Enum.UserInputType.MouseMovement)then
+if(Q.Position-Pending.Pos).Magnitude>MaxMove then
+Pending.Moved=true
+end
+end
+end)
+
+an.AddSignal(af.InputEnded,function(Q)
+if not Pending or Q~=Pending.Input then return end
+local R=Pending
+Pending=nil
+local S=os.clock()
+if R.Moved or(Q.Position-R.Pos).Magnitude>MaxMove or S-R.Time>0.35 then
+TapCount=0
+return
+end
+
+if TapCount>0 and(S-LastTapTime>MaxGap or(R.Pos-FirstTapPos).Magnitude>MaxMove*2)then
+TapCount=0
+end
+if TapCount==0 then FirstTapPos=R.Pos end
+TapCount=TapCount+1
+LastTapTime=S
+
+if TapCount>=Needed then
+TapCount=0
+aw:SetToTheCenter()
+aw.Position=UDim2.new(0.5,0,0.5,0)
+end
+end)
+end
 
 if not aw.HideSearchBar then
 local Q=a.load'ad'
