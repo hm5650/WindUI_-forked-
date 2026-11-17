@@ -1157,6 +1157,7 @@ function r.Tween(u,v,x,...)
 return f:Create(u,TweenInfo.new(v,...),x)
 end
 
+-- [perf] while a window is being resized, heavy per-element work is deferred
 r.Interacting=false
 r.DeferredRound={}
 function r.SetInteracting(u)
@@ -9210,7 +9211,7 @@ Values=ao.Values or{},
 MenuWidth=ao.MenuWidth or 180,
 Value=ao.Value,
 AllowNone=ao.AllowNone,
-SearchBarEnabled=ao.SearchBarEnabled or false,
+SearchBarEnabled=(ao.SearchBarEnabled~=nil and ao.SearchBarEnabled)or(ao.SearchBarEnabled==nil and(ao.Multi==true or #(ao.Values or{})>=6)),
 Multi=ao.Multi,
 Callback=ao.Callback or nil,
 
@@ -16106,6 +16107,10 @@ O=R
 end
 end)
 
+
+
+-- Quadruple-tap on the UI background (not on elements) centers the window.
+-- Works through popups/dialog backdrops because it listens on raw input.
 do
 local TapCount=0
 local LastTapTime=0
@@ -16151,6 +16156,14 @@ return V
 end
 
 an.AddSignal(af.InputBegan,function(Q)
+if Q.UserInputType==Enum.UserInputType.MouseButton2 then
+if isBackgroundTap(Q.Position)then
+TapCount=0
+aw:SetToTheCenter()
+aw.Position=UDim2.new(0.5,0,0.5,0)
+end
+return
+end
 if Q.UserInputType~=Enum.UserInputType.MouseButton1
 and Q.UserInputType~=Enum.UserInputType.Touch then
 return
