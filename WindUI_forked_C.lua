@@ -1157,7 +1157,6 @@ function r.Tween(u,v,x,...)
 return f:Create(u,TweenInfo.new(v,...),x)
 end
 
--- [perf] while a window is being resized, heavy per-element work is deferred
 r.Interacting=false
 r.DeferredRound={}
 function r.SetInteracting(u)
@@ -8580,7 +8579,7 @@ end
 end
 
 function UpdatePosition()
-if not ap.Opened then return end
+if not ap.UIElements.MenuCanvas.Visible then return end
 local at=ap.UIElements.Dropdown or ap.DropdownFrame.UIElements.Main
 local au=ap.UIElements.MenuCanvas
 
@@ -15935,6 +15934,58 @@ end
 end
 end,(aw.Topbar.ButtonsType=="Default"and 999 or 997),nil,Color3.fromHex"#F4695F")
 
+if av.CenterButton~=false then
+local mac=aw.Topbar.ButtonsType~="Default"
+local accent=Color3.fromHex"#0091FF"
+pcall(function()
+local c=an.GetThemeProperty("Primary",an.Theme)
+if typeof(c)=="Color3"then accent=c end
+end)
+
+local taps,lastTap=0,0
+local function doCenter()
+taps=0
+aw:SetToTheCenter()
+aw.Position=UDim2.new(0.5,0,0.5,0)
+end
+
+local cBtn=aw:CreateTopbarButton("Center","maximize",function()
+local t=os.clock()
+if t-lastTap>0.5 then taps=0 end
+lastTap=t
+taps=taps+1
+if taps>=4 then doCenter()end
+end,(mac and 1000 or 996),false,accent,mac and 9 or nil)
+
+for _,c in ipairs(cBtn:GetChildren())do
+if c:IsA"GuiObject"then c.Visible=false end
+end
+
+local lbl=Instance.new"TextLabel"
+lbl.Name="CenterLetter"
+lbl.BackgroundTransparency=1
+lbl.Size=UDim2.fromScale(1,1)
+lbl.Text="C"
+lbl.TextSize=mac and 10 or 16
+lbl.Font=Enum.Font.GothamBold
+lbl.ZIndex=10000
+lbl.Parent=cBtn
+if mac then
+lbl.TextColor3=an.GetTextColorForHSB(accent)
+lbl.TextTransparency=1
+an.AddThemeObject(cBtn,{ImageColor3="Primary"})
+an.AddSignal(cBtn.MouseEnter,function()
+ap(lbl,0.1,{TextTransparency=0}):Play()
+end)
+an.AddSignal(cBtn.MouseLeave,function()
+ap(lbl,0.1,{TextTransparency=1}):Play()
+end)
+else
+an.AddThemeObject(lbl,{TextColor3="Primary"})
+end
+an.AddSignal(cBtn.MouseButton2Click,doCenter)
+end
+
 function aw.Tag(L,M)
 if aw.UIElements.Main.Main.Topbar.Center.Visible==false then
 aw.UIElements.Main.Main.Topbar.Center.Visible=true
@@ -15960,12 +16011,29 @@ aw.UIElements.Main.Size=PendingSize
 PendingSize=nil
 end
 
+local LastResizeInput=0
 local function endResize()
 if ResizeConn then ResizeConn:Disconnect()ResizeConn=nil end
 applyResize(true)
 if aw.Interacting then
 aw.Interacting=false
 an.SetInteracting(false)
+end
+end
+local function beginInteract()
+LastResizeInput=os.clock()
+if not aw.Interacting then
+aw.Interacting=true
+an.SetInteracting(true)
+end
+if not ResizeConn then
+ResizeConn=game:GetService"RunService".RenderStepped:Connect(function()
+if not isResizing or os.clock()-LastResizeInput>0.35 then
+endResize()
+return
+end
+applyResize(false)
+end)
 end
 end
 
@@ -15978,16 +16046,7 @@ initialInputPosition=M.Position
 PendingSize=nil
 LastResizeApply=0
 
-aw.Interacting=true
-an.SetInteracting(true)
-if ResizeConn then ResizeConn:Disconnect()end
-ResizeConn=game:GetService"RunService".RenderStepped:Connect(function()
-if not isResizing then
-endResize()
-return
-end
-applyResize(false)
-end)
+beginInteract()
 
 ap(az.ImageLabel,0.1,{ImageTransparency=0.35}):Play()
 
@@ -16043,6 +16102,7 @@ math.clamp(O.Y.Offset,aw.MinSize.Y,aw.MaxSize.Y)
 
 PendingSize=O
 aw.Size=O
+beginInteract()
 end
 end
 end)
@@ -16107,10 +16167,6 @@ O=R
 end
 end)
 
-
-
--- Quadruple-tap on the UI background (not on elements) centers the window.
--- Works through popups/dialog backdrops because it listens on raw input.
 do
 local TapCount=0
 local LastTapTime=0
@@ -16123,7 +16179,7 @@ local MaxMove=18
 local function isBackgroundTap(Q)
 local R=aw.UIElements.Main
 if not R or not R.Parent or not R.Visible then return false end
-if aw.Closed or aw.Dragging or isResizing then return false end
+if aw.Closed or isResizing then return false end
 local S=R.AbsoluteSize
 local T=R.AbsolutePosition
 if Q.X<T.X or Q.X>T.X+S.X or Q.Y<T.Y or Q.Y>T.Y+S.Y then return false end
@@ -16134,7 +16190,7 @@ local X=U[W]
 if X==R or X:IsDescendantOf(R)then
 V=true
 local Y=X.AbsoluteSize
-if X~=R and Y.X>=S.X*0.9 and Y.Y>=S.Y*0.9 then
+if X~=R and Y.X>=S.X*0.5 and Y.Y>=S.Y*0.5 then
 return true
 end
 if X:IsA"GuiButton"or X:IsA"TextBox"then
@@ -16142,7 +16198,7 @@ return false
 end
 if X.Active and not X:IsA"ScrollingFrame"and X~=R then
 local Z=X.AbsoluteSize
-if not(Z.X>=S.X*0.9 and Z.Y>=S.Y*0.9)then
+if Z.X<60 or Z.Y<60 then
 return false
 end
 end
@@ -16185,7 +16241,8 @@ end
 end)
 
 an.AddSignal(af.InputEnded,function(Q)
-if not Pending or Q~=Pending.Input then return end
+if not Pending then return end
+if Q~=Pending.Input and not(Pending.Input.UserInputType==Enum.UserInputType.MouseButton1 and Q.UserInputType==Enum.UserInputType.MouseButton1)then return end
 local R=Pending
 Pending=nil
 local S=os.clock()
