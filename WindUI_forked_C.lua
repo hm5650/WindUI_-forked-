@@ -200,7 +200,7 @@ end
 m:SetRadius(f)
 m:SetType(g)
 
-b.AddSignal(r:GetPropertyChangedSignal"AbsoluteSize",function()
+local function RefreshShape()
 local u=GetShape(m.Type)
 if u.AutoChange==false then
 return
@@ -243,6 +243,14 @@ if G~=m:GetType()then
 m:SetType(G)
 end
 end
+end
+
+b.AddSignal(r:GetPropertyChangedSignal"AbsoluteSize",function()
+if b.Interacting then
+b.DeferredRound[RefreshShape]=true
+return
+end
+RefreshShape()
 end)
 
 return r,m
@@ -1149,6 +1157,32 @@ function r.Tween(u,v,x,...)
 return f:Create(u,TweenInfo.new(v,...),x)
 end
 
+r.Interacting=false
+r.DeferredRound={}
+function r.SetInteracting(u)
+if u then
+r.Interacting=true
+return
+end
+r.Interacting=false
+local v=r.DeferredRound
+r.DeferredRound={}
+local x={}
+for z in next,v do x[#x+1]=z end
+if #x==0 then return end
+task.spawn(function()
+local z=game:GetService"RunService"
+for A=1,#x do
+if r.Interacting then
+for B=A,#x do r.DeferredRound[x[B]]=true end
+return
+end
+pcall(x[A])
+if A%80==0 then z.Heartbeat:Wait() end
+end
+end)
+end
+
 
 
 
@@ -1238,6 +1272,9 @@ local C
 local F=false
 local G,H
 local J
+local PendingPos
+local StepConn
+local RS=game:GetService"RunService"
 
 local L={
 CanDraggable=true,
@@ -1247,20 +1284,25 @@ if not z or typeof(z)~="table"then
 z={x}
 end
 
+local function flush()
+if PendingPos then
+x.Position=PendingPos
+PendingPos=nil
+end
+end
+
 local function update(M)
 if not F or not L.CanDraggable then
 return
 end
 
 local N=M.Position-G
-r.Tween(x,0.02,{
-Position=UDim2.new(
+PendingPos=UDim2.new(
 H.X.Scale,
 H.X.Offset+N.X,
 H.Y.Scale,
 H.Y.Offset+N.Y
-),
-}):Play()
+)
 end
 
 for M,N in pairs(z)do
@@ -1284,6 +1326,9 @@ J=O
 C=N
 G=O.Position
 H=x.Position
+PendingPos=nil
+if StepConn then StepConn:Disconnect()end
+StepConn=RS.RenderStepped:Connect(flush)
 
 if A and typeof(A)=="function"then
 A(true,C)
@@ -1323,6 +1368,8 @@ J.UserInputType==Enum.UserInputType.MouseButton1
 and M.UserInputType==Enum.UserInputType.MouseButton1
 )
 then
+flush()
+if StepConn then StepConn:Disconnect()StepConn=nil end
 p.CurrentInput=nil
 F=false
 J=nil
@@ -8532,6 +8579,7 @@ end
 end
 
 function UpdatePosition()
+if not ap.Opened then return end
 local at=ap.UIElements.Dropdown or ap.DropdownFrame.UIElements.Main
 local au=ap.UIElements.MenuCanvas
 
@@ -12083,6 +12131,7 @@ function C:Step(dt)
 if not self.Enabled then return end
 local win=self.Window
 if win.Destroyed then return end
+if win.Interacting then self.Acc=0 return end
 
 self.Acc+=dt
 if self.Acc<(tonumber(win.RectCullInterval)or 0.06)then return end
@@ -15895,13 +15944,49 @@ end
 
 local L=av.WindUI.GenerateGUID()
 
+local PendingSize
+local LastResizeApply=0
+local ResizeConn
+
+local function applyResize(force)
+if not PendingSize then return end
+local Q=os.clock()
+if not force and Q-LastResizeApply<(tonumber(aw.ResizeInterval)or 0.025)then
+return
+end
+LastResizeApply=Q
+aw.UIElements.Main.Size=PendingSize
+PendingSize=nil
+end
+
+local function endResize()
+if ResizeConn then ResizeConn:Disconnect()ResizeConn=nil end
+applyResize(true)
+if aw.Interacting then
+aw.Interacting=false
+an.SetInteracting(false)
+end
+end
+
 local function startResizing(M)
 if aw.CanResize then
 isResizing=true
 aA.Active=true
 initialSize=aw.UIElements.Main.Size
 initialInputPosition=M.Position
+PendingSize=nil
+LastResizeApply=0
 
+aw.Interacting=true
+an.SetInteracting(true)
+if ResizeConn then ResizeConn:Disconnect()end
+ResizeConn=game:GetService"RunService".RenderStepped:Connect(function()
+if not isResizing then
+endResize()
+return
+end
+applyResize(false)
+end)
 
 ap(az.ImageLabel,0.1,{ImageTransparency=0.35}):Play()
 
@@ -15915,7 +16000,7 @@ av.WindUI.CurrentInput=nil
 
 isResizing=false
 aA.Active=false
-
+endResize()
 
 ap(az.ImageLabel,0.17,{ImageTransparency=0.8}):Play()
 end
@@ -15955,10 +16040,7 @@ O.Y.Scale,
 math.clamp(O.Y.Offset,aw.MinSize.Y,aw.MaxSize.Y)
 )
 
-ap(aw.UIElements.Main,0.08,{
-Size=O,
-},Enum.EasingStyle.Quad,Enum.EasingDirection.Out):Play()
-
+PendingSize=O
 aw.Size=O
 end
 end
@@ -16024,7 +16106,95 @@ O=R
 end
 end)
 
+do
+local TapCount=0
+local LastTapTime=0
+local FirstTapPos
+local Pending
+local Needed=4
+local MaxGap=0.4
+local MaxMove=18
 
+local function isBackgroundTap(Q)
+local R=aw.UIElements.Main
+if not R or not R.Parent or not R.Visible then return false end
+if aw.Closed or aw.Dragging or isResizing then return false end
+local S=R.AbsoluteSize
+local T=R.AbsolutePosition
+if Q.X<T.X or Q.X>T.X+S.X or Q.Y<T.Y or Q.Y>T.Y+S.Y then return false end
+local U=af:GetGuiObjectsAtPosition(Q.X,Q.Y)
+local V=false
+for W=1,#U do
+local X=U[W]
+if X==R or X:IsDescendantOf(R)then
+V=true
+local Y=X.AbsoluteSize
+if X~=R and Y.X>=S.X*0.9 and Y.Y>=S.Y*0.9 then
+return true
+end
+if X:IsA"GuiButton"or X:IsA"TextBox"then
+return false
+end
+if X.Active and not X:IsA"ScrollingFrame"and X~=R then
+local Z=X.AbsoluteSize
+if not(Z.X>=S.X*0.9 and Z.Y>=S.Y*0.9)then
+return false
+end
+end
+elseif not V then
+if X:IsA"GuiButton"or X:IsA"TextBox"or(X:IsA"GuiObject"and X.Active)then
+return false
+end
+end
+end
+return V
+end
+
+an.AddSignal(af.InputBegan,function(Q)
+if Q.UserInputType~=Enum.UserInputType.MouseButton1
+and Q.UserInputType~=Enum.UserInputType.Touch then
+return
+end
+if isBackgroundTap(Q.Position)then
+Pending={Input=Q,Pos=Q.Position,Time=os.clock(),Moved=false}
+else
+Pending=nil
+TapCount=0
+end
+end)
+
+an.AddSignal(af.InputChanged,function(Q)
+if Pending and(Q==Pending.Input or Q.UserInputType==Enum.UserInputType.MouseMovement)then
+if(Q.Position-Pending.Pos).Magnitude>MaxMove then
+Pending.Moved=true
+end
+end
+end)
+
+an.AddSignal(af.InputEnded,function(Q)
+if not Pending or Q~=Pending.Input then return end
+local R=Pending
+Pending=nil
+local S=os.clock()
+if R.Moved or(Q.Position-R.Pos).Magnitude>MaxMove or S-R.Time>0.35 then
+TapCount=0
+return
+end
+
+if TapCount>0 and(S-LastTapTime>MaxGap or(R.Pos-FirstTapPos).Magnitude>MaxMove*2)then
+TapCount=0
+end
+if TapCount==0 then FirstTapPos=R.Pos end
+TapCount=TapCount+1
+LastTapTime=S
+
+if TapCount>=Needed then
+TapCount=0
+aw:SetToTheCenter()
+aw.Position=UDim2.new(0.5,0,0.5,0)
+end
+end)
+end
 
 if not aw.HideSearchBar then
 local Q=a.load'ad'
