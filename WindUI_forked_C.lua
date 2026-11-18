@@ -1157,7 +1157,6 @@ function r.Tween(u,v,x,...)
 return f:Create(u,TweenInfo.new(v,...),x)
 end
 
--- [perf] while a window is being resized, heavy per-element work is deferred
 r.Interacting=false
 r.DeferredRound={}
 function r.SetInteracting(u)
@@ -15935,59 +15934,6 @@ end
 end
 end,(aw.Topbar.ButtonsType=="Default"and 999 or 997),nil,Color3.fromHex"#F4695F")
 
--- Center button ("C"): quadruple-click or right-click to center the window.
-if av.CenterButton~=false then
-local mac=aw.Topbar.ButtonsType~="Default"
-local accent=Color3.fromHex"#0091FF"
-pcall(function()
-local c=an.GetThemeProperty("Primary",an.Theme)
-if typeof(c)=="Color3"then accent=c end
-end)
-
-local taps,lastTap=0,0
-local function doCenter()
-taps=0
-aw:SetToTheCenter()
-aw.Position=UDim2.new(0.5,0,0.5,0)
-end
-
-local cBtn=aw:CreateTopbarButton("Center","maximize",function()
-local t=os.clock()
-if t-lastTap>0.5 then taps=0 end
-lastTap=t
-taps=taps+1
-if taps>=4 then doCenter()end
-end,(mac and 1000 or 996),false,accent,mac and 9 or nil)
-
-for _,c in ipairs(cBtn:GetChildren())do
-if c:IsA"GuiObject"then c.Visible=false end
-end
-
-local lbl=Instance.new"TextLabel"
-lbl.Name="CenterLetter"
-lbl.BackgroundTransparency=1
-lbl.Size=UDim2.fromScale(1,1)
-lbl.Text="C"
-lbl.TextSize=mac and 10 or 16
-lbl.Font=Enum.Font.GothamBold
-lbl.ZIndex=10000
-lbl.Parent=cBtn
-if mac then
-lbl.TextColor3=an.GetTextColorForHSB(accent)
-lbl.TextTransparency=1
-an.AddThemeObject(cBtn,{ImageColor3="Primary"})
-an.AddSignal(cBtn.MouseEnter,function()
-ap(lbl,0.1,{TextTransparency=0}):Play()
-end)
-an.AddSignal(cBtn.MouseLeave,function()
-ap(lbl,0.1,{TextTransparency=1}):Play()
-end)
-else
-an.AddThemeObject(lbl,{TextColor3="Primary"})
-end
-an.AddSignal(cBtn.MouseButton2Click,doCenter)
-end
-
 function aw.Tag(L,M)
 if aw.UIElements.Main.Main.Topbar.Center.Visible==false then
 aw.UIElements.Main.Main.Topbar.Center.Visible=true
@@ -16169,10 +16115,6 @@ O=R
 end
 end)
 
-
-
--- Quadruple-tap on the UI background (not on elements) centers the window.
--- Works through popups/dialog backdrops because it listens on raw input.
 do
 local TapCount=0
 local LastTapTime=0
@@ -16188,7 +16130,6 @@ if not R or not R.Parent or not R.Visible then return false end
 if aw.Closed or isResizing then return false end
 local S=R.AbsoluteSize
 local T=R.AbsolutePosition
--- input positions exclude the top inset; AbsolutePosition of an IgnoreGuiInset gui includes it
 local Gui=R:FindFirstAncestorWhichIsA"ScreenGui"
 local Inset=Vector2.zero
 if Gui and Gui.IgnoreGuiInset then
