@@ -1157,6 +1157,7 @@ function r.Tween(u,v,x,...)
 return f:Create(u,TweenInfo.new(v,...),x)
 end
 
+-- [perf] while a window is being resized, heavy per-element work is deferred
 r.Interacting=false
 r.DeferredRound={}
 function r.SetInteracting(u)
@@ -8578,7 +8579,7 @@ UDim2.fromOffset(ap.UIElements.MenuCanvas.AbsoluteSize.X,aw)
 end
 end
 
-function UpdatePosition()
+local function UpdatePosition()
 if not ap.UIElements.MenuCanvas.Visible then return end
 local at=ap.UIElements.Dropdown or ap.DropdownFrame.UIElements.Main
 local au=ap.UIElements.MenuCanvas
@@ -15934,6 +15935,7 @@ end
 end
 end,(aw.Topbar.ButtonsType=="Default"and 999 or 997),nil,Color3.fromHex"#F4695F")
 
+-- Center button ("C"): quadruple-click or right-click to center the window.
 if av.CenterButton~=false then
 local mac=aw.Topbar.ButtonsType~="Default"
 local accent=Color3.fromHex"#0091FF"
@@ -16167,6 +16169,10 @@ O=R
 end
 end)
 
+
+
+-- Quadruple-tap on the UI background (not on elements) centers the window.
+-- Works through popups/dialog backdrops because it listens on raw input.
 do
 local TapCount=0
 local LastTapTime=0
@@ -16182,33 +16188,40 @@ if not R or not R.Parent or not R.Visible then return false end
 if aw.Closed or isResizing then return false end
 local S=R.AbsoluteSize
 local T=R.AbsolutePosition
-if Q.X<T.X or Q.X>T.X+S.X or Q.Y<T.Y or Q.Y>T.Y+S.Y then return false end
-local U=af:GetGuiObjectsAtPosition(Q.X,Q.Y)
-local V=false
+-- input positions exclude the top inset; AbsolutePosition of an IgnoreGuiInset gui includes it
+local Gui=R:FindFirstAncestorWhichIsA"ScreenGui"
+local Inset=Vector2.zero
+if Gui and Gui.IgnoreGuiInset then
+Inset=game:GetService"GuiService":GetGuiInset()
+end
+local P=Vector2.new(Q.X,Q.Y)+Inset
+if P.X<T.X or P.X>T.X+S.X or P.Y<T.Y or P.Y>T.Y+S.Y then return false end
+local U=af:GetGuiObjectsAtPosition(P.X,P.Y)
+local function hasMain(Z)
+for _,X in ipairs(Z)do
+if X==R or X:IsDescendantOf(R)then return true end
+end
+return false
+end
+if not hasMain(U)then
+U=af:GetGuiObjectsAtPosition(Q.X,Q.Y)
+if not hasMain(U)then return false end
+end
 for W=1,#U do
 local X=U[W]
 if X==R or X:IsDescendantOf(R)then
-V=true
 local Y=X.AbsoluteSize
-if X~=R and Y.X>=S.X*0.5 and Y.Y>=S.Y*0.5 then
+if X~=R and Y.X>=S.X*0.9 and Y.Y>=S.Y*0.9 then
 return true
 end
 if X:IsA"GuiButton"or X:IsA"TextBox"then
 return false
 end
-if X.Active and not X:IsA"ScrollingFrame"and X~=R then
-local Z=X.AbsoluteSize
-if Z.X<60 or Z.Y<60 then
+elseif X:IsA"GuiButton"or X:IsA"TextBox"then
 return false
 end
 end
-elseif not V then
-if X:IsA"GuiButton"or X:IsA"TextBox"or(X:IsA"GuiObject"and X.Active)then
-return false
-end
-end
-end
-return V
+return true
 end
 
 an.AddSignal(af.InputBegan,function(Q)
