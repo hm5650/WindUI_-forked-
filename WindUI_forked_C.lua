@@ -16124,6 +16124,51 @@ local Needed=4
 local MaxGap=0.4
 local MaxMove=18
 
+local function objectsAt(x,y)
+local R=aw.UIElements.Main
+local cands={}
+local anc=R.Parent
+while anc and anc~=game do cands[#cands+1]=anc anc=anc.Parent end
+local Pl=game:GetService"Players".LocalPlayer
+local pg=Pl and Pl:FindFirstChildOfClass"PlayerGui"
+if pg then cands[#cands+1]=pg end
+cands[#cands+1]=game:GetService"CoreGui"
+for _,C in ipairs(cands)do
+local ok,r=pcall(function()return C:GetGuiObjectsAtPosition(x,y)end)
+if ok and type(r)=="table"then return r end
+end
+local list={}
+local function visible(o)
+local c=o
+while c and c~=game do
+if c:IsA"GuiObject"and not c.Visible then return false end
+if c:IsA"ScreenGui"and not c.Enabled then return false end
+c=c.Parent
+end
+return true
+end
+local function scan(root)
+if not root then return end
+for _,o in ipairs(root:GetDescendants())do
+if o:IsA"GuiObject"then
+local p,sz=o.AbsolutePosition,o.AbsoluteSize
+if x>=p.X and x<=p.X+sz.X and y>=p.Y and y<=p.Y+sz.Y and visible(o)then
+local d=0
+local c=o.Parent
+while c and c~=game do d=d+1 c=c.Parent end
+list[#list+1]={o,d}
+end
+end
+end
+end
+scan(R)
+pcall(function()scan(av.WindUI.DropdownGui)end)
+table.sort(list,function(a,b)return a[2]>b[2]end)
+local out={}
+for i,v in ipairs(list)do out[i]=v[1]end
+return out
+end
+
 local function isBackgroundTap(Q)
 local R=aw.UIElements.Main
 if not R or not R.Parent or not R.Visible then return false end
@@ -16137,7 +16182,7 @@ Inset=game:GetService"GuiService":GetGuiInset()
 end
 local P=Vector2.new(Q.X,Q.Y)+Inset
 if P.X<T.X or P.X>T.X+S.X or P.Y<T.Y or P.Y>T.Y+S.Y then return false end
-local U=af:GetGuiObjectsAtPosition(P.X,P.Y)
+local U=objectsAt(P.X,P.Y)
 local function hasMain(Z)
 for _,X in ipairs(Z)do
 if X==R or X:IsDescendantOf(R)then return true end
@@ -16145,7 +16190,7 @@ end
 return false
 end
 if not hasMain(U)then
-U=af:GetGuiObjectsAtPosition(Q.X,Q.Y)
+U=objectsAt(Q.X,Q.Y)
 if not hasMain(U)then return false end
 end
 for W=1,#U do
