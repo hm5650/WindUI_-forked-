@@ -8720,6 +8720,116 @@ end
 end
 end
 
+ap.LockedOptions=ap.LockedOptions or{}
+
+local function ApplyOptionLock(ay)
+if not(ay and ay.UIElements and ay.UIElements.TabItem)then return end
+local item=ay.UIElements.TabItem
+if not item.Parent then return end
+local lockVal=ap.LockedOptions[ay.Name]
+local locked=lockVal~=nil or ay.BaseLocked==true
+ay.Locked=locked
+local text=ay.Desc
+if locked then
+local why=(lockVal~=nil and lockVal~=true and tostring(lockVal))or ay.BaseLockedText
+text="\u{1F512} "..tostring(why or"Locked")
+end
+local titleFrame=item:FindFirstChild("Frame")and item.Frame:FindFirstChild("Title")
+local titleLabel=titleFrame and titleFrame:FindFirstChild("TextLabel")
+local descLabel=titleFrame and titleFrame:FindFirstChild("Desc")
+local has=text~=nil and text~=""
+if descLabel then
+descLabel.Text=has and text or""
+descLabel.Visible=has
+end
+item.AutomaticSize=has and Enum.AutomaticSize.Y or Enum.AutomaticSize.None
+item.Active=not locked
+local icon=ay.UIElements.TabIcon and ay.UIElements.TabIcon.ImageLabel
+if locked then
+item.ImageTransparency=1
+if titleLabel then titleLabel.TextTransparency=0.6 end
+if icon then icon.ImageTransparency=0.6 end
+elseif ay.Selected then
+item.ImageTransparency=an
+if titleLabel then titleLabel.TextTransparency=0 end
+if icon then icon.ImageTransparency=0 end
+else
+item.ImageTransparency=1
+if titleLabel then titleLabel.TextTransparency=ar=="Dropdown"and 0.4 or 0.05 end
+if icon then icon.ImageTransparency=ar=="Dropdown"and 0.2 or 0 end
+end
+end
+
+local function RelayoutSoon()
+task.defer(function()
+if ao.Window.Destroyed then return end
+RecalculateCanvasSize()
+RecalculateListSize()
+end)
+end
+
+local function FindOption(name)
+for _,it in next,ap.Tabs do
+if it.Name==name then return it end
+end
+end
+
+function as.LockOption(au,name,text)
+if typeof(name)=="table"then name=name.Title end
+if name==nil then return end
+if text==nil or text==false then text=true end
+ap.LockedOptions[name]=text
+local it=FindOption(name)
+if it then
+ApplyOptionLock(it)
+RelayoutSoon()
+end
+end
+
+function as.UnlockOption(au,name)
+if typeof(name)=="table"then name=name.Title end
+if name==nil then return end
+ap.LockedOptions[name]=nil
+local it=FindOption(name)
+if it then
+ApplyOptionLock(it)
+RelayoutSoon()
+end
+end
+
+function as.LockOptions(au,map)
+local new={}
+if typeof(map)=="table"then
+for k,v in next,map do
+if type(k)=="number"then
+new[typeof(v)=="table"and v.Title or v]=true
+elseif v~=false and v~=nil then
+new[k]=v
+end
+end
+end
+ap.LockedOptions=new
+for _,it in next,ap.Tabs do
+ApplyOptionLock(it)
+end
+RelayoutSoon()
+end
+
+function as.UnlockAllOptions(au)
+as:LockOptions({})
+end
+
+function as.IsOptionLocked(au,name)
+if typeof(name)=="table"then name=name.Title end
+return ap.LockedOptions[name]~=nil
+end
+
+function as.GetLockedOptions(au)
+local out={}
+for k,v in next,ap.LockedOptions do out[k]=v end
+return out
+end
+
 function as.Refresh(au,av)
 if ao.Window.Destroyed then
 return
@@ -8788,9 +8898,18 @@ Icon=typeof(ax)=="table"and ax.Icon or nil,
 IconSize=typeof(ax)=="table"and ax.IconSize or nil,
 Original=ax,
 Selected=false,
-Locked=typeof(ax)=="table"and ax.Locked or false,
+BaseLocked=typeof(ax)=="table"and ax.Locked==true or false,
+BaseLockedText=typeof(ax)=="table"and ax.LockedTitle or nil,
+Locked=false,
 UIElements={},
 }
+local axName=typeof(ax)=="table"and ax.Title or ax
+local axLockVal=ap.LockedOptions[axName]
+ay.Locked=ay.BaseLocked or axLockVal~=nil
+local shownDesc=ay.Desc
+if ay.Locked then
+shownDesc="\u{1F512} "..tostring((axLockVal~=nil and axLockVal~=true and axLockVal)or ay.BaseLockedText or"Locked")
+end
 local az
 if ay.Icon then
 az=ak.Image(ay.Icon,ay.Icon,0,ao.Window.Folder,"Dropdown",true)
@@ -8804,7 +8923,7 @@ aq.MenuCorner-aq.MenuPadding,
 "Squircle",
 {
 Size=UDim2.new(1,0,0,36),
-AutomaticSize=ay.Desc and"Y",
+AutomaticSize=shownDesc and"Y",
 ImageTransparency=1,
 Parent=ap.UIElements.Menu.Frame.ScrollingFrame,
 
@@ -8877,7 +8996,7 @@ AutomaticSize="Y",
 Size=UDim2.new(1,0,0,0),
 }),
 al("TextLabel",{
-Text=ay.Desc or"",
+Text=shownDesc or"",
 TextXAlignment="Left",
 FontFace=Font.new(ak.Font,Enum.FontWeight.Regular),
 ThemeTag={
@@ -8891,7 +9010,7 @@ LayoutOrder=999,
 AutomaticSize="Y",
 TextWrapped=true,
 Size=UDim2.new(1,0,0,0),
-Visible=ay.Desc and true or false,
+Visible=shownDesc and true or false,
 Name="Desc",
 }),
 al("UIListLayout",{
@@ -9014,6 +9133,9 @@ if ay.UIElements.TabIcon then
 am(ay.UIElements.TabIcon.ImageLabel,0.1,{ImageTransparency=0}):Play()
 end
 ap.Value=ay.Original
+end
+for _,lockedIt in next,ap.Tabs do
+if lockedIt.Locked then ApplyOptionLock(lockedIt)end
 end
 Callback()
 end)
@@ -9206,6 +9328,19 @@ Title=ao.Title or"Dropdown",
 Desc=ao.Desc or nil,
 Locked=ao.Locked or false,
 LockedTitle=ao.LockedTitle,
+LockedOptions=(function()
+local t={}
+if typeof(ao.LockedOptions)=="table"then
+for k,v in next,ao.LockedOptions do
+if type(k)=="number"then
+t[v]=true
+elseif v~=false and v~=nil then
+t[k]=v
+end
+end
+end
+return t
+end)(),
 Values=ao.Values or{},
 MenuWidth=ao.MenuWidth or 180,
 Value=ao.Value,
@@ -9268,6 +9403,12 @@ ap.Refresh=ap.DropdownMenu.Refresh
 ap.Select=ap.DropdownMenu.Select
 ap.Open=ap.DropdownMenu.Open
 ap.Close=ap.DropdownMenu.Close
+ap.LockOption=ap.DropdownMenu.LockOption
+ap.UnlockOption=ap.DropdownMenu.UnlockOption
+ap.LockOptions=ap.DropdownMenu.LockOptions
+ap.UnlockAllOptions=ap.DropdownMenu.UnlockAllOptions
+ap.IsOptionLocked=ap.DropdownMenu.IsOptionLocked
+ap.GetLockedOptions=ap.DropdownMenu.GetLockedOptions
 
 ag("ImageLabel",{
 Image=af.Icon"chevrons-up-down"[1],
