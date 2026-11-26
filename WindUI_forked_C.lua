@@ -4087,6 +4087,34 @@ ElementBackground=Color3.fromHex"#2A2A2C",
 ElementBackgroundTransparency=0,
 },
 
+Monochrome={
+Name="Monochrome",
+
+Accent=Color3.fromHex"#0a0a0a",
+Dialog=Color3.fromHex"#000000",
+Outline=Color3.fromHex"#FFFFFF",
+Text=Color3.fromHex"#FFFFFF",
+Placeholder=Color3.fromHex"#a1a1a1",
+Background=Color3.fromHex"#000000",
+Button=Color3.fromHex"#3f3f3f",
+Icon=Color3.fromHex"#FFFFFF",
+Toggle=Color3.fromHex"#FFFFFF",
+Slider=Color3.fromHex"#FFFFFF",
+Checkbox=Color3.fromHex"#FFFFFF",
+
+PanelBackground=Color3.fromHex"#FFFFFF",
+PanelBackgroundTransparency=0.95,
+
+SliderIcon=Color3.fromHex"#bdbdbd",
+Primary=Color3.fromHex"#FFFFFF",
+
+LabelBackground=Color3.fromHex"#000000",
+LabelBackgroundTransparency=0.6,
+
+ElementBackground=Color3.fromHex"#000000",
+ElementBackgroundTransparency=0.35,
+},
+
 Light={
 Name="Light",
 
