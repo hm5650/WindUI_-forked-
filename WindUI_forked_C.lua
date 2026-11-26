@@ -8845,7 +8845,7 @@ ap.Tabs={}
 
 if ap.SearchBarEnabled then
 if not at then
-at=aj("Search...","search",ap.UIElements.Menu,nil,function(aw)
+at=aj("SEEKK!1!1!1!!","search",ap.UIElements.Menu,nil,function(aw)
 ap.__SearchToken=(ap.__SearchToken or 0)+1
 local token=ap.__SearchToken
 local query=string.lower(aw)
@@ -13506,7 +13506,7 @@ Icons=a.load'ac',
 
 local aq=ak("TextBox",{
 Text="",
-PlaceholderText="Search...",
+PlaceholderText="SEEKK!1!1!1!!",
 ThemeTag={
 PlaceholderColor3="Placeholder",
 TextColor3="Text",
@@ -16430,7 +16430,7 @@ local R=false
 
 
 
-local S=aq("Search","search",aw.UIElements.SideBarContainer,true)
+local S=aq("Seek","search",aw.UIElements.SideBarContainer,true)
 S.Size=UDim2.new(1,-aw.UIPadding/2,0,39)
 S.Position=UDim2.new(0,aw.UIPadding/2,0,0)
 
