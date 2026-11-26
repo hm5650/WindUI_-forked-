@@ -8578,8 +8578,8 @@ UDim2.fromOffset(ap.UIElements.MenuCanvas.AbsoluteSize.X,aw)
 end
 end
 
-local function UpdatePosition()
-if not ap.UIElements.MenuCanvas.Visible then return end
+function UpdatePosition()
+if not ap.Opened then return end
 local at=ap.UIElements.Dropdown or ap.DropdownFrame.UIElements.Main
 local au=ap.UIElements.MenuCanvas
 
@@ -8720,116 +8720,6 @@ end
 end
 end
 
-ap.LockedOptions=ap.LockedOptions or{}
-
-local function ApplyOptionLock(ay)
-if not(ay and ay.UIElements and ay.UIElements.TabItem)then return end
-local item=ay.UIElements.TabItem
-if not item.Parent then return end
-local lockVal=ap.LockedOptions[ay.Name]
-local locked=lockVal~=nil or ay.BaseLocked==true
-ay.Locked=locked
-local text=ay.Desc
-if locked then
-local why=(lockVal~=nil and lockVal~=true and tostring(lockVal))or ay.BaseLockedText
-text="\u{1F512} "..tostring(why or"Locked")
-end
-local titleFrame=item:FindFirstChild("Frame")and item.Frame:FindFirstChild("Title")
-local titleLabel=titleFrame and titleFrame:FindFirstChild("TextLabel")
-local descLabel=titleFrame and titleFrame:FindFirstChild("Desc")
-local has=text~=nil and text~=""
-if descLabel then
-descLabel.Text=has and text or""
-descLabel.Visible=has
-end
-item.AutomaticSize=has and Enum.AutomaticSize.Y or Enum.AutomaticSize.None
-item.Active=not locked
-local icon=ay.UIElements.TabIcon and ay.UIElements.TabIcon.ImageLabel
-if locked then
-item.ImageTransparency=1
-if titleLabel then titleLabel.TextTransparency=0.6 end
-if icon then icon.ImageTransparency=0.6 end
-elseif ay.Selected then
-item.ImageTransparency=an
-if titleLabel then titleLabel.TextTransparency=0 end
-if icon then icon.ImageTransparency=0 end
-else
-item.ImageTransparency=1
-if titleLabel then titleLabel.TextTransparency=ar=="Dropdown"and 0.4 or 0.05 end
-if icon then icon.ImageTransparency=ar=="Dropdown"and 0.2 or 0 end
-end
-end
-
-local function RelayoutSoon()
-task.defer(function()
-if ao.Window.Destroyed then return end
-RecalculateCanvasSize()
-RecalculateListSize()
-end)
-end
-
-local function FindOption(name)
-for _,it in next,ap.Tabs do
-if it.Name==name then return it end
-end
-end
-
-function as.LockOption(au,name,text)
-if typeof(name)=="table"then name=name.Title end
-if name==nil then return end
-if text==nil or text==false then text=true end
-ap.LockedOptions[name]=text
-local it=FindOption(name)
-if it then
-ApplyOptionLock(it)
-RelayoutSoon()
-end
-end
-
-function as.UnlockOption(au,name)
-if typeof(name)=="table"then name=name.Title end
-if name==nil then return end
-ap.LockedOptions[name]=nil
-local it=FindOption(name)
-if it then
-ApplyOptionLock(it)
-RelayoutSoon()
-end
-end
-
-function as.LockOptions(au,map)
-local new={}
-if typeof(map)=="table"then
-for k,v in next,map do
-if type(k)=="number"then
-new[typeof(v)=="table"and v.Title or v]=true
-elseif v~=false and v~=nil then
-new[k]=v
-end
-end
-end
-ap.LockedOptions=new
-for _,it in next,ap.Tabs do
-ApplyOptionLock(it)
-end
-RelayoutSoon()
-end
-
-function as.UnlockAllOptions(au)
-as:LockOptions({})
-end
-
-function as.IsOptionLocked(au,name)
-if typeof(name)=="table"then name=name.Title end
-return ap.LockedOptions[name]~=nil
-end
-
-function as.GetLockedOptions(au)
-local out={}
-for k,v in next,ap.LockedOptions do out[k]=v end
-return out
-end
-
 function as.Refresh(au,av)
 if ao.Window.Destroyed then
 return
@@ -8845,7 +8735,7 @@ ap.Tabs={}
 
 if ap.SearchBarEnabled then
 if not at then
-at=aj("SEEKK!1!1!1!!","search",ap.UIElements.Menu,nil,function(aw)
+at=aj("Search...","search",ap.UIElements.Menu,nil,function(aw)
 ap.__SearchToken=(ap.__SearchToken or 0)+1
 local token=ap.__SearchToken
 local query=string.lower(aw)
@@ -8898,18 +8788,9 @@ Icon=typeof(ax)=="table"and ax.Icon or nil,
 IconSize=typeof(ax)=="table"and ax.IconSize or nil,
 Original=ax,
 Selected=false,
-BaseLocked=typeof(ax)=="table"and ax.Locked==true or false,
-BaseLockedText=typeof(ax)=="table"and ax.LockedTitle or nil,
-Locked=false,
+Locked=typeof(ax)=="table"and ax.Locked or false,
 UIElements={},
 }
-local axName=typeof(ax)=="table"and ax.Title or ax
-local axLockVal=ap.LockedOptions[axName]
-ay.Locked=ay.BaseLocked or axLockVal~=nil
-local shownDesc=ay.Desc
-if ay.Locked then
-shownDesc="\u{1F512} "..tostring((axLockVal~=nil and axLockVal~=true and axLockVal)or ay.BaseLockedText or"Locked")
-end
 local az
 if ay.Icon then
 az=ak.Image(ay.Icon,ay.Icon,0,ao.Window.Folder,"Dropdown",true)
@@ -8923,7 +8804,7 @@ aq.MenuCorner-aq.MenuPadding,
 "Squircle",
 {
 Size=UDim2.new(1,0,0,36),
-AutomaticSize=shownDesc and"Y",
+AutomaticSize=ay.Desc and"Y",
 ImageTransparency=1,
 Parent=ap.UIElements.Menu.Frame.ScrollingFrame,
 
@@ -8996,7 +8877,7 @@ AutomaticSize="Y",
 Size=UDim2.new(1,0,0,0),
 }),
 al("TextLabel",{
-Text=shownDesc or"",
+Text=ay.Desc or"",
 TextXAlignment="Left",
 FontFace=Font.new(ak.Font,Enum.FontWeight.Regular),
 ThemeTag={
@@ -9010,7 +8891,7 @@ LayoutOrder=999,
 AutomaticSize="Y",
 TextWrapped=true,
 Size=UDim2.new(1,0,0,0),
-Visible=shownDesc and true or false,
+Visible=ay.Desc and true or false,
 Name="Desc",
 }),
 al("UIListLayout",{
@@ -9133,9 +9014,6 @@ if ay.UIElements.TabIcon then
 am(ay.UIElements.TabIcon.ImageLabel,0.1,{ImageTransparency=0}):Play()
 end
 ap.Value=ay.Original
-end
-for _,lockedIt in next,ap.Tabs do
-if lockedIt.Locked then ApplyOptionLock(lockedIt)end
 end
 Callback()
 end)
@@ -9328,24 +9206,11 @@ Title=ao.Title or"Dropdown",
 Desc=ao.Desc or nil,
 Locked=ao.Locked or false,
 LockedTitle=ao.LockedTitle,
-LockedOptions=(function()
-local t={}
-if typeof(ao.LockedOptions)=="table"then
-for k,v in next,ao.LockedOptions do
-if type(k)=="number"then
-t[v]=true
-elseif v~=false and v~=nil then
-t[k]=v
-end
-end
-end
-return t
-end)(),
 Values=ao.Values or{},
 MenuWidth=ao.MenuWidth or 180,
 Value=ao.Value,
 AllowNone=ao.AllowNone,
-SearchBarEnabled=(ao.SearchBarEnabled~=nil and ao.SearchBarEnabled)or(ao.SearchBarEnabled==nil and(ao.Multi==true or #(ao.Values or{})>=6)),
+SearchBarEnabled=ao.SearchBarEnabled or false,
 Multi=ao.Multi,
 Callback=ao.Callback or nil,
 
@@ -9403,12 +9268,6 @@ ap.Refresh=ap.DropdownMenu.Refresh
 ap.Select=ap.DropdownMenu.Select
 ap.Open=ap.DropdownMenu.Open
 ap.Close=ap.DropdownMenu.Close
-ap.LockOption=ap.DropdownMenu.LockOption
-ap.UnlockOption=ap.DropdownMenu.UnlockOption
-ap.LockOptions=ap.DropdownMenu.LockOptions
-ap.UnlockAllOptions=ap.DropdownMenu.UnlockAllOptions
-ap.IsOptionLocked=ap.DropdownMenu.IsOptionLocked
-ap.GetLockedOptions=ap.DropdownMenu.GetLockedOptions
 
 ag("ImageLabel",{
 Image=af.Icon"chevrons-up-down"[1],
@@ -13506,7 +13365,7 @@ Icons=a.load'ac',
 
 local aq=ak("TextBox",{
 Text="",
-PlaceholderText="SEEKK!1!1!1!!",
+PlaceholderText="Search...",
 ThemeTag={
 PlaceholderColor3="Placeholder",
 TextColor3="Text",
@@ -16100,29 +15959,12 @@ aw.UIElements.Main.Size=PendingSize
 PendingSize=nil
 end
 
-local LastResizeInput=0
 local function endResize()
 if ResizeConn then ResizeConn:Disconnect()ResizeConn=nil end
 applyResize(true)
 if aw.Interacting then
 aw.Interacting=false
 an.SetInteracting(false)
-end
-end
-local function beginInteract()
-LastResizeInput=os.clock()
-if not aw.Interacting then
-aw.Interacting=true
-an.SetInteracting(true)
-end
-if not ResizeConn then
-ResizeConn=game:GetService"RunService".RenderStepped:Connect(function()
-if not isResizing or os.clock()-LastResizeInput>0.35 then
-endResize()
-return
-end
-applyResize(false)
-end)
 end
 end
 
@@ -16135,7 +15977,16 @@ initialInputPosition=M.Position
 PendingSize=nil
 LastResizeApply=0
 
-beginInteract()
+aw.Interacting=true
+an.SetInteracting(true)
+if ResizeConn then ResizeConn:Disconnect()end
+ResizeConn=game:GetService"RunService".RenderStepped:Connect(function()
+if not isResizing then
+endResize()
+return
+end
+applyResize(false)
+end)
 
 ap(az.ImageLabel,0.1,{ImageTransparency=0.35}):Play()
 
@@ -16191,7 +16042,6 @@ math.clamp(O.Y.Offset,aw.MinSize.Y,aw.MaxSize.Y)
 
 PendingSize=O
 aw.Size=O
-beginInteract()
 end
 end
 end)
@@ -16265,78 +16115,19 @@ local Needed=4
 local MaxGap=0.4
 local MaxMove=18
 
-local function objectsAt(x,y)
-local R=aw.UIElements.Main
-local cands={}
-local anc=R.Parent
-while anc and anc~=game do cands[#cands+1]=anc anc=anc.Parent end
-local Pl=game:GetService"Players".LocalPlayer
-local pg=Pl and Pl:FindFirstChildOfClass"PlayerGui"
-if pg then cands[#cands+1]=pg end
-cands[#cands+1]=game:GetService"CoreGui"
-for _,C in ipairs(cands)do
-local ok,r=pcall(function()return C:GetGuiObjectsAtPosition(x,y)end)
-if ok and type(r)=="table"then return r end
-end
-local list={}
-local function visible(o)
-local c=o
-while c and c~=game do
-if c:IsA"GuiObject"and not c.Visible then return false end
-if c:IsA"ScreenGui"and not c.Enabled then return false end
-c=c.Parent
-end
-return true
-end
-local function scan(root)
-if not root then return end
-for _,o in ipairs(root:GetDescendants())do
-if o:IsA"GuiObject"then
-local p,sz=o.AbsolutePosition,o.AbsoluteSize
-if x>=p.X and x<=p.X+sz.X and y>=p.Y and y<=p.Y+sz.Y and visible(o)then
-local d=0
-local c=o.Parent
-while c and c~=game do d=d+1 c=c.Parent end
-list[#list+1]={o,d}
-end
-end
-end
-end
-scan(R)
-pcall(function()scan(av.WindUI.DropdownGui)end)
-table.sort(list,function(a,b)return a[2]>b[2]end)
-local out={}
-for i,v in ipairs(list)do out[i]=v[1]end
-return out
-end
-
 local function isBackgroundTap(Q)
 local R=aw.UIElements.Main
 if not R or not R.Parent or not R.Visible then return false end
-if aw.Closed or isResizing then return false end
+if aw.Closed or aw.Dragging or isResizing then return false end
 local S=R.AbsoluteSize
 local T=R.AbsolutePosition
-local Gui=R:FindFirstAncestorWhichIsA"ScreenGui"
-local Inset=Vector2.zero
-if Gui and Gui.IgnoreGuiInset then
-Inset=game:GetService"GuiService":GetGuiInset()
-end
-local P=Vector2.new(Q.X,Q.Y)+Inset
-if P.X<T.X or P.X>T.X+S.X or P.Y<T.Y or P.Y>T.Y+S.Y then return false end
-local U=objectsAt(P.X,P.Y)
-local function hasMain(Z)
-for _,X in ipairs(Z)do
-if X==R or X:IsDescendantOf(R)then return true end
-end
-return false
-end
-if not hasMain(U)then
-U=objectsAt(Q.X,Q.Y)
-if not hasMain(U)then return false end
-end
+if Q.X<T.X or Q.X>T.X+S.X or Q.Y<T.Y or Q.Y>T.Y+S.Y then return false end
+local U=af:GetGuiObjectsAtPosition(Q.X,Q.Y)
+local V=false
 for W=1,#U do
 local X=U[W]
 if X==R or X:IsDescendantOf(R)then
+V=true
 local Y=X.AbsoluteSize
 if X~=R and Y.X>=S.X*0.9 and Y.Y>=S.Y*0.9 then
 return true
@@ -16344,22 +16135,22 @@ end
 if X:IsA"GuiButton"or X:IsA"TextBox"then
 return false
 end
-elseif X:IsA"GuiButton"or X:IsA"TextBox"then
+if X.Active and not X:IsA"ScrollingFrame"and X~=R then
+local Z=X.AbsoluteSize
+if not(Z.X>=S.X*0.9 and Z.Y>=S.Y*0.9)then
 return false
 end
 end
-return true
+elseif not V then
+if X:IsA"GuiButton"or X:IsA"TextBox"or(X:IsA"GuiObject"and X.Active)then
+return false
+end
+end
+end
+return V
 end
 
 an.AddSignal(af.InputBegan,function(Q)
-if Q.UserInputType==Enum.UserInputType.MouseButton2 then
-if isBackgroundTap(Q.Position)then
-TapCount=0
-aw:SetToTheCenter()
-aw.Position=UDim2.new(0.5,0,0.5,0)
-end
-return
-end
 if Q.UserInputType~=Enum.UserInputType.MouseButton1
 and Q.UserInputType~=Enum.UserInputType.Touch then
 return
@@ -16381,8 +16172,7 @@ end
 end)
 
 an.AddSignal(af.InputEnded,function(Q)
-if not Pending then return end
-if Q~=Pending.Input and not(Pending.Input.UserInputType==Enum.UserInputType.MouseButton1 and Q.UserInputType==Enum.UserInputType.MouseButton1)then return end
+if not Pending or Q~=Pending.Input then return end
 local R=Pending
 Pending=nil
 local S=os.clock()
@@ -16430,7 +16220,7 @@ local R=false
 
 
 
-local S=aq("Seek","search",aw.UIElements.SideBarContainer,true)
+local S=aq("Search","search",aw.UIElements.SideBarContainer,true)
 S.Size=UDim2.new(1,-aw.UIPadding/2,0,39)
 S.Position=UDim2.new(0,aw.UIPadding/2,0,0)
 
