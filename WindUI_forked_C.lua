@@ -6529,6 +6529,7 @@ IconAlign=ae.IconAlign or"Right",
 Locked=ae.Locked or false,
 LockedTitle=ae.LockedTitle,
 Callback=ae.Callback or function()end,
+GoToTab=ae.GoToTab,
 UIElements={},
 }
 
@@ -6610,6 +6611,16 @@ end
 aa.AddSignal(af.ButtonFrame.UIElements.Main.MouseButton1Click,function()
 if ag then
 task.spawn(function()
+local ah=af.GoToTab
+if typeof(ah)=="function"then
+local ai,aj=pcall(ah)
+ah=ai and aj or nil
+end
+if typeof(ah)=="table"and typeof(ah.Select)=="function"then
+pcall(ah.Select,ah)
+elseif typeof(ah)=="number"and ae.Window and ae.Window.SelectTab then
+pcall(ae.Window.SelectTab,ae.Window,ah)
+end
 aa.SafeCallback(af.Callback)
 end)
 end
@@ -12669,6 +12680,7 @@ ToolTipParent=nil,
 TabHighlight=nil,
 
 OnChangeFunc=function(ao)end,
+Listeners={},
 }
 
 function ao.Init(ap,aq,ar,as)
@@ -13224,8 +13236,25 @@ function ao.OnChange(ap,aq)
 ao.OnChangeFunc=aq
 end
 
+function ao.Listen(ap,aq)
+if typeof(aq)~="function"then
+return{Disconnect=function()end}
+end
+local ar={Fn=aq}
+table.insert(ao.Listeners,ar)
+return{
+Disconnect=function()
+local as=table.find(ao.Listeners,ar)
+if as then
+table.remove(ao.Listeners,as)
+end
+end,
+}
+end
+
 function ao.SelectTab(ap,aq)
 if not ao.Tabs[aq].Locked then
+local prevTab=ao.SelectedTab
 ao.SelectedTab=aq
 
 for ar,as in next,ao.Tabs do
@@ -13284,6 +13313,13 @@ at:Play()
 end)
 
 ao.OnChangeFunc(aq)
+
+if prevTab~=aq and#ao.Listeners>0 then
+local ar=table.clone(ao.Listeners)
+for as=1,#ar do
+pcall(ar[as].Fn,ao.Tabs[aq],prevTab and ao.Tabs[prevTab]or nil)
+end
+end
 end
 end
 
@@ -15775,6 +15811,10 @@ end
 
 function aw.SelectTab(H,J)
 G:SelectTab(J)
+end
+
+function aw.OnTabChanged(H,J)
+return G:Listen(J)
 end
 
 function aw.Section(H,J)
