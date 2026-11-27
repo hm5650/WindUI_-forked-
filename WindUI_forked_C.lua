@@ -550,6 +550,8 @@ DialogIcon="Icon",
 
 Toggle="Button",
 ToggleBar="White",
+ToggleBarOn="ToggleBar",
+ToggleBarOff="ToggleBar",
 
 Checkbox="Primary",
 CheckboxIcon="White",
@@ -4099,8 +4101,11 @@ Background=Color3.fromHex"#000000",
 Button=Color3.fromHex"#3f3f3f",
 Icon=Color3.fromHex"#FFFFFF",
 Toggle=Color3.fromHex"#FFFFFF",
+ToggleBarOn=Color3.fromHex"#000000",
+ToggleBarOff=Color3.fromHex"#FFFFFF",
 Slider=Color3.fromHex"#FFFFFF",
 Checkbox=Color3.fromHex"#FFFFFF",
+CheckboxIcon=Color3.fromHex"#000000",
 
 PanelBackground=Color3.fromHex"#FFFFFF",
 PanelBackgroundTransparency=0.95,
@@ -6879,6 +6884,7 @@ end
 end
 
 if aw then
+ab.SetThemeTag(aq.Frame.Bar.Highlight.BarOverlay,{ImageColor3="ToggleBarOn"},0.1)
 ad(aq.Layer,0.1,{
 ImageTransparency=0,
 }):Play()
@@ -6903,6 +6909,7 @@ aq.Frame.Bar.Highlight.Glass.Image=az
 aq.Frame.Bar.Highlight.Glass.ImageRectSize=aA
 aq.Frame.Bar.Highlight.Glass.ImageRectOffset=aB
 else
+ab.SetThemeTag(aq.Frame.Bar.Highlight.BarOverlay,{ImageColor3="ToggleBarOff"},0.1)
 ad(aq.Layer,0.1,{
 ImageTransparency=1,
 }):Play()
